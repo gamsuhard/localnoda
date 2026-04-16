@@ -62,6 +62,15 @@ This workspace currently covers:
 - No real bulk historical load should be treated as approved until a fresh server-side disposable-schema validation is rerun from this exact tree
 - No pre-bulk gate evidence should be treated as durable unless the workspace artifact sha256 is captured alongside the reports
 
+## Pre-Block 10
+
+The project is now at the manual-approval boundary immediately before Block 10.  
+The required execution artifacts before the first full bounded bulk are:
+
+- `BLOCK_09_CLOSURE_DECISION.md`
+- `REAL_CANARY_FINAL_SETTINGS_TASK.md`
+- `SINGAPORE_UPLOAD_STRESS_WAVE_SPEC.md`
+
 ## Files to touch first in later blocks
 
 - `configs/fullnode/config.conf.overlay.template`
