@@ -8,6 +8,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterable
 
 
 TOPIC0 = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
@@ -32,6 +33,7 @@ def deterministic_tron_address(seed: int) -> str:
 
 def build_demo_records(
     record_count: int = 3,
+    start_offset: int = 0,
     base_block: int = 54300001,
     base_timestamp_ms: int = 1693526400123,
     amount_base: int = 1_250_000,
@@ -41,13 +43,14 @@ def build_demo_records(
         raise ValueError("record_count must be > 0")
     records: list[dict[str, object]] = []
     for offset in range(record_count):
+        global_offset = start_offset + offset
         block_number = base_block + offset
-        from_seed = 0xA1A1A1 + offset
-        to_seed = 0xB2B2B2 + offset
+        from_seed = 0xA1A1A1 + global_offset
+        to_seed = 0xB2B2B2 + global_offset
         records.append(
             {
                 "triggerName": "solidityLogTrigger",
-                "transactionId": format(offset + 1, "064x"),
+                "transactionId": format(global_offset + 1, "064x"),
                 "blockNumber": block_number,
                 "timeStamp": base_timestamp_ms + (offset * 5000),
                 "uniqueId": f"{block_number}-0-0",
@@ -61,6 +64,15 @@ def build_demo_records(
             }
         )
     return records
+
+
+def normalize_corrupt_segment_sequences(values: Iterable[int] | None) -> set[int]:
+    if values is None:
+        return set()
+    normalized = {int(value) for value in values}
+    if any(value <= 0 for value in normalized):
+        raise ValueError("corrupt segment sequences must be positive integers")
+    return normalized
 
 
 def sha256_file(path: Path) -> str:
@@ -84,40 +96,40 @@ def ensure_run_row(connection: sqlite3.Connection, run_id: str) -> None:
     )
 
 
-def generate_demo_segment(
+def write_demo_segment(
+    *,
     run_root: Path,
     run_id: str,
-    db_path: Path | None = None,
-    record_count: int = 3,
-    base_block: int = 54300001,
-    base_timestamp_ms: int = 1693526400123,
-    bucket: str = DEFAULT_BUCKET,
-    prefix_root: str = DEFAULT_PREFIX_ROOT,
-    extractor_instance_id: str = DEFAULT_EXTRACTOR_INSTANCE_ID,
-) -> dict[str, str]:
-    records = build_demo_records(
-        record_count=record_count,
-        base_block=base_block,
-        base_timestamp_ms=base_timestamp_ms,
-    )
+    segment_seq: int,
+    records: list[dict[str, object]],
+    bucket: str,
+    prefix_root: str,
+    extractor_instance_id: str,
+    db_path: Path | None,
+    corrupt_after_manifest: bool,
+) -> dict[str, object]:
     segments_dir = run_root / "segments"
     manifests_dir = run_root / "manifests"
     segments_dir.mkdir(parents=True, exist_ok=True)
     manifests_dir.mkdir(parents=True, exist_ok=True)
 
-    segment_path = segments_dir / "usdt_transfer_000001.ndjson.gz"
+    segment_name = f"usdt_transfer_{segment_seq:06d}.ndjson.gz"
+    manifest_name = f"usdt_transfer_{segment_seq:06d}.manifest.json"
+    segment_path = segments_dir / segment_name
+    manifest_path = manifests_dir / manifest_name
+
     with gzip.open(segment_path, "wt", encoding="utf-8") as handle:
         for record in records:
             handle.write(json.dumps(record))
             handle.write("\n")
 
-    manifest_path = manifests_dir / "usdt_transfer_000001.manifest.json"
+    segment_sha256 = sha256_file(segment_path)
     manifest_payload = {
         "manifest_version": 1,
         "kind": "segment_manifest",
-        "segment_id": f"{run_id}-seg-000001",
+        "segment_id": f"{run_id}-seg-{segment_seq:06d}",
         "run_id": run_id,
-        "segment_seq": 1,
+        "segment_seq": segment_seq,
         "stream_name": "usdt_transfer",
         "trigger_name": "solidityLogTrigger",
         "topic0": TOPIC0,
@@ -130,12 +142,12 @@ def generate_demo_segment(
         "last_tx_hash": records[-1]["transactionId"],
         "record_count": len(records),
         "file_size_bytes": segment_path.stat().st_size,
-        "sha256": sha256_file(segment_path),
+        "sha256": segment_sha256,
         "codec": "ndjson.gz",
         "local_path": str(segment_path),
-        "relative_path": f"segments/{segment_path.name}",
+        "relative_path": f"segments/{segment_name}",
         "s3_bucket": bucket,
-        "s3_key": f"{prefix_root.rstrip('/')}/runs/{run_id}/segments/{segment_path.name}",
+        "s3_key": f"{prefix_root.rstrip('/')}/runs/{run_id}/segments/{segment_name}",
         "extractor_instance_id": extractor_instance_id,
         "created_at_utc": utc_now_iso(),
         "closed_at_utc": utc_now_iso(),
@@ -167,11 +179,12 @@ def generate_demo_segment(
                         row_count,
                         byte_count,
                         sha256
-                    ) VALUES (?, ?, 1, ?, 'sealed', ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, 'sealed', ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         manifest_payload["segment_id"],
                         run_id,
+                        segment_seq,
                         str(segment_path),
                         manifest_payload["block_from"],
                         manifest_payload["block_to"],
@@ -186,14 +199,108 @@ def generate_demo_segment(
         finally:
             connection.close()
 
+    if corrupt_after_manifest:
+        with segment_path.open("ab") as handle:
+            handle.write(b"\ncorruption")
+
     return {
+        "segment_seq": segment_seq,
         "segment_path": str(segment_path),
         "manifest_path": str(manifest_path),
+        "segment_id": manifest_payload["segment_id"],
+        "record_count": len(records),
+        "block_from": records[0]["blockNumber"],
+        "block_to": records[-1]["blockNumber"],
+        "corrupted_after_manifest": corrupt_after_manifest,
+    }
+
+
+def generate_demo_run(
+    run_root: Path,
+    run_id: str,
+    db_path: Path | None = None,
+    segment_count: int = 1,
+    records_per_segment: int = 3,
+    base_block: int = 54300001,
+    base_timestamp_ms: int = 1693526400123,
+    bucket: str = DEFAULT_BUCKET,
+    prefix_root: str = DEFAULT_PREFIX_ROOT,
+    extractor_instance_id: str = DEFAULT_EXTRACTOR_INSTANCE_ID,
+    corrupt_segment_sequences: Iterable[int] | None = None,
+) -> dict[str, object]:
+    if segment_count <= 0:
+        raise ValueError("segment_count must be > 0")
+    if records_per_segment <= 0:
+        raise ValueError("records_per_segment must be > 0")
+
+    corrupted = normalize_corrupt_segment_sequences(corrupt_segment_sequences)
+    segment_summaries: list[dict[str, object]] = []
+    global_offset = 0
+    for segment_seq in range(1, segment_count + 1):
+        records = build_demo_records(
+            record_count=records_per_segment,
+            start_offset=global_offset,
+            base_block=base_block + global_offset,
+            base_timestamp_ms=base_timestamp_ms + (global_offset * 5000),
+        )
+        segment_summary = write_demo_segment(
+            run_root=run_root,
+            run_id=run_id,
+            segment_seq=segment_seq,
+            records=records,
+            bucket=bucket,
+            prefix_root=prefix_root,
+            extractor_instance_id=extractor_instance_id,
+            db_path=db_path,
+            corrupt_after_manifest=segment_seq in corrupted,
+        )
+        segment_summaries.append(segment_summary)
+        global_offset += records_per_segment
+
+    return {
         "run_root": str(run_root),
         "run_id": run_id,
-        "record_count": str(len(records)),
-        "block_from": str(records[0]["blockNumber"]),
-        "block_to": str(records[-1]["blockNumber"]),
+        "segment_count": segment_count,
+        "records_per_segment": records_per_segment,
+        "total_record_count": segment_count * records_per_segment,
+        "block_from": segment_summaries[0]["block_from"],
+        "block_to": segment_summaries[-1]["block_to"],
+        "segments": segment_summaries,
+    }
+
+
+def generate_demo_segment(
+    run_root: Path,
+    run_id: str,
+    db_path: Path | None = None,
+    record_count: int = 3,
+    base_block: int = 54300001,
+    base_timestamp_ms: int = 1693526400123,
+    bucket: str = DEFAULT_BUCKET,
+    prefix_root: str = DEFAULT_PREFIX_ROOT,
+    extractor_instance_id: str = DEFAULT_EXTRACTOR_INSTANCE_ID,
+) -> dict[str, str]:
+    run_result = generate_demo_run(
+        run_root=run_root,
+        run_id=run_id,
+        db_path=db_path,
+        segment_count=1,
+        records_per_segment=record_count,
+        base_block=base_block,
+        base_timestamp_ms=base_timestamp_ms,
+        bucket=bucket,
+        prefix_root=prefix_root,
+        extractor_instance_id=extractor_instance_id,
+    )
+    first_segment = run_result["segments"][0]
+    return {
+        "segment_path": str(first_segment["segment_path"]),
+        "manifest_path": str(first_segment["manifest_path"]),
+        "run_root": str(run_result["run_root"]),
+        "run_id": run_id,
+        "record_count": str(run_result["total_record_count"]),
+        "block_from": str(run_result["block_from"]),
+        "block_to": str(run_result["block_to"]),
     }
 
 
@@ -203,26 +310,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--db-path", type=Path)
     parser.add_argument("--record-count", type=int, default=3)
+    parser.add_argument("--segment-count", type=int, default=1)
+    parser.add_argument("--records-per-segment", type=int)
     parser.add_argument("--base-block", type=int, default=54300001)
     parser.add_argument("--base-timestamp-ms", type=int, default=1693526400123)
     parser.add_argument("--bucket", default=DEFAULT_BUCKET)
     parser.add_argument("--prefix-root", default=DEFAULT_PREFIX_ROOT)
     parser.add_argument("--extractor-instance-id", default=DEFAULT_EXTRACTOR_INSTANCE_ID)
+    parser.add_argument("--corrupt-segment-seq", action="append", type=int, default=[])
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    result = generate_demo_segment(
-        args.run_root,
-        args.run_id,
-        args.db_path,
-        record_count=args.record_count,
+    records_per_segment = args.records_per_segment or args.record_count
+    result = generate_demo_run(
+        run_root=args.run_root,
+        run_id=args.run_id,
+        db_path=args.db_path,
+        segment_count=args.segment_count,
+        records_per_segment=records_per_segment,
         base_block=args.base_block,
         base_timestamp_ms=args.base_timestamp_ms,
         bucket=args.bucket,
         prefix_root=args.prefix_root,
         extractor_instance_id=args.extractor_instance_id,
+        corrupt_segment_sequences=args.corrupt_segment_seq,
     )
     print(json.dumps(result, indent=2))
     return 0

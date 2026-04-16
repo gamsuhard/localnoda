@@ -1,0 +1,109 @@
+{
+  "run_id": "real-slice-20230901t0000z-20260416t114407z",
+  "label": "real-slice-restart-replay",
+  "status": "passed",
+  "clickhouse_database": "tron_usdt_stress_20260416t112926z_real_slice_20230901t0000",
+  "workspace_artifact_sha256": "a945c595b1a99b42565c1a4b68a167057e29a8827d4875948f3c3722256b7abf",
+  "workspace_artifact_source": "s3://goldusdt-v2-stage-913378704801-ops/codex/local-tron-usdt-backfill/workspace-20260416t112926z.tar.gz",
+  "loader_runtime_env_safe": {
+    "CLICKHOUSE_HOST": "nyk32aoz97.eu-central-1.vpce.aws.clickhouse.cloud",
+    "CLICKHOUSE_PORT": "9440",
+    "CLICKHOUSE_DATABASE": "tron_usdt_stress_20260416t112926z_real_slice_20230901t0000",
+    "CLICKHOUSE_SECURE": "1",
+    "LOADER_PYTHON_BIN": "/srv/local-tron-usdt-backfill/.venvs/loader/bin/python",
+    "LOADER_CONCURRENCY": "1",
+    "LOADER_RECORD_BATCH_SIZE": "10000",
+    "AWS_REGION": "eu-central-1",
+    "S3_BUFFER_BUCKET": "goldusdt-v2-stage-913378704801-raw",
+    "S3_BUFFER_PREFIX_ROOT": "providers/tron-usdt-backfill/usdt-transfer-oneoff"
+  },
+  "started_at_utc": "2026-04-16T12:43:03Z",
+  "finished_at_utc": "2026-04-16T12:43:14Z",
+  "expected_failure": false,
+  "replay_delta_counts": {
+    "new_canonical_event_rows": 0,
+    "new_leg_rows": 0
+  },
+  "loader_state": {
+    "segment_status_summary": {
+      "validated": 1
+    },
+    "loader_runs_count": 1,
+    "loaded_segments_count": 1
+  },
+  "clickhouse_counts": {
+    "canonical": {
+      "events": 34690,
+      "unique_events": 34690
+    },
+    "legs": {
+      "legs": 69380,
+      "unique_legs": 69380
+    },
+    "audit": {
+      "audit_rows": 6
+    }
+  },
+  "host_report_path": "/srv/local-tron-usdt-backfill/reports/real-slice-20230901t0000z-20260416t114407z-stress-run.json",
+  "replay": {
+    "wall_ms": 7687,
+    "aggregate_metrics": {
+      "segment_count": 1,
+      "bytes_read": 3163777,
+      "record_count": 34690,
+      "event_rows_expected": 34690,
+      "leg_rows_expected": 69380,
+      "s3_read_ms": 130,
+      "normalize_ms": 990,
+      "stage_ms": 3718,
+      "merge_ms": 1037,
+      "audit_ms": 182,
+      "validation_ms": 269,
+      "clickhouse_query_count": 21,
+      "clickhouse_client_process_count": 21,
+      "clickhouse_query_wall_ms": 4574,
+      "loader_peak_rss_kb_max": 183092
+    },
+    "throughput": {
+      "rows_per_second": 4512.81,
+      "bytes_per_second": 411575.0,
+      "segments_per_second": 0.1301,
+      "average_seconds_per_segment": 7.687
+    },
+    "dominant_bottleneck": "stage_insert"
+  },
+  "storage_measurement": {
+    "rows": 104076,
+    "bytes_on_disk": 14100950,
+    "data_compressed_bytes": 14093138,
+    "data_uncompressed_bytes": 62694478,
+    "table_count": 3
+  },
+  "query_surface": {
+    "sample_address": "4179309abcff2cf531070ca9222a1f72c4a5136874",
+    "sample_counterparty": "412cb38609ea3a9e04cc0baa9c88026088966f6133",
+    "sample_tx_hash": "144a3465add00cf5d89513b1dcc69214c4a2e0d8eb7b755e47a565bc847b2dd5",
+    "address_time_range_latency_ms": 123,
+    "address_counterparty_latency_ms": 124,
+    "tx_hash_lookup_latency_ms": 121,
+    "minimum_amount_filter_latency_ms": 124,
+    "forward_page_1_latency_ms": 130,
+    "forward_page_2_latency_ms": 116,
+    "backward_page_1_latency_ms": 134,
+    "backward_page_2_latency_ms": 139,
+    "traceability_latency_ms": 142,
+    "rows_per_day_estimate": 36,
+    "rows_per_month_30d_estimate": 1080,
+    "projected_full_period_days": 958
+  },
+  "scenario": {
+    "wave": "real-controlled-slice",
+    "label": "real-slice-restart-replay",
+    "batch_size": 10000,
+    "segment_count": 0,
+    "records_per_segment": 0,
+    "synthetic": false,
+    "schema_name": "tron_usdt_stress_20260416t112926z_real_slice_20230901t0000",
+    "loader_db_path": "/srv/local-tron-usdt-backfill/runtime/stress/20260416t112926z/real_slice_20230901t0000/loader_state.sqlite"
+  }
+}

@@ -70,6 +70,8 @@ def package_workspace(output_dir: Path) -> tuple[Path, str]:
             relative = path.relative_to(PROJECT_ROOT)
             if should_exclude(relative.as_posix()):
                 continue
+            if path.is_dir():
+                continue
             archive.add(path, arcname=Path(PROJECT_ROOT.name) / relative)
     return artifact_path, sha256_file(artifact_path)
 

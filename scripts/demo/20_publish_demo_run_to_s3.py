@@ -46,6 +46,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate a synthetic TRON USDT run and publish it into the frozen S3 buffer.")
     parser.add_argument("--run-id", default=f"prebulk-demo-{utc_now_compact().lower()}")
     parser.add_argument("--record-count", type=int, default=3)
+    parser.add_argument("--segment-count", type=int, default=1)
+    parser.add_argument("--records-per-segment", type=int)
     parser.add_argument("--base-block", type=int, default=54300001)
     parser.add_argument("--base-timestamp-ms", type=int, default=1693526400123)
     parser.add_argument("--bucket", default="goldusdt-v2-stage-913378704801-raw")
@@ -59,6 +61,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--extractor-region", default="eu-central-1")
     parser.add_argument("--resolved-end-block", type=int)
     parser.add_argument("--work-root", type=Path)
+    parser.add_argument("--corrupt-segment-seq", action="append", type=int, default=[])
+    parser.add_argument("--skip-verify-uploaded-segments", action="store_true")
     return parser.parse_args()
 
 
@@ -66,6 +70,7 @@ def main() -> int:
     args = parse_args()
     generator = load_module("demo_generator_publish", GENERATOR_PATH)
     uploader = load_module("segment_uploader_publish", UPLOADER_PATH)
+    records_per_segment = args.records_per_segment or args.record_count
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base_root = args.work_root or Path(temp_dir)
@@ -73,16 +78,18 @@ def main() -> int:
         db_path = base_root / "runtime" / "run_state.sqlite"
         initialize_sqlite(db_path)
 
-        generated = generator.generate_demo_segment(
+        generated = generator.generate_demo_run(
             run_root=run_root,
             run_id=args.run_id,
             db_path=db_path,
-            record_count=args.record_count,
+            segment_count=args.segment_count,
+            records_per_segment=records_per_segment,
             base_block=args.base_block,
             base_timestamp_ms=args.base_timestamp_ms,
             bucket=args.bucket,
             prefix_root=args.prefix_root,
             extractor_instance_id=f"synthetic-{args.extractor_region}",
+            corrupt_segment_sequences=args.corrupt_segment_seq,
         )
         resolved_end_block = args.resolved_end_block or int(generated["block_to"])
         uploaded = uploader.upload_sealed_segments(
@@ -99,20 +106,26 @@ def main() -> int:
             plugin_build_id=args.plugin_build_id,
             resolved_end_block=resolved_end_block,
         )
-        verified = uploader.verify_uploaded_segments(
-            db_path=db_path,
-            schema_path=SQLITE_SCHEMA_002,
-            bucket=args.bucket,
-            prefix_root=args.prefix_root,
-            run_id=args.run_id,
-            region=args.extractor_region,
-        )
+        if args.skip_verify_uploaded_segments:
+            verified = {"skipped": True, "reason": "skip_verify_uploaded_segments"}
+        else:
+            verified = uploader.verify_uploaded_segments(
+                db_path=db_path,
+                schema_path=SQLITE_SCHEMA_002,
+                bucket=args.bucket,
+                prefix_root=args.prefix_root,
+                run_id=args.run_id,
+                region=args.extractor_region,
+            )
         result = {
             "run_id": args.run_id,
-            "record_count": args.record_count,
+            "segment_count": args.segment_count,
+            "records_per_segment": records_per_segment,
+            "record_count": generated["total_record_count"],
             "bucket": args.bucket,
             "prefix_root": args.prefix_root,
             "resolved_end_block": resolved_end_block,
+            "generated": generated,
             "uploaded_segments": uploaded,
             "verified": verified,
         }

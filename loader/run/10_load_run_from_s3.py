@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -15,6 +16,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - Windows local tests
+    resource = None
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -49,6 +55,10 @@ class SegmentMetrics:
     merge_ms: int = 0
     audit_ms: int = 0
     validation_ms: int = 0
+    clickhouse_query_count: int = 0
+    clickhouse_client_process_count: int = 0
+    clickhouse_query_wall_ms: int = 0
+    loader_peak_rss_kb: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -62,6 +72,10 @@ class SegmentMetrics:
             "merge_ms": self.merge_ms,
             "audit_ms": self.audit_ms,
             "validation_ms": self.validation_ms,
+            "clickhouse_query_count": self.clickhouse_query_count,
+            "clickhouse_client_process_count": self.clickhouse_client_process_count,
+            "clickhouse_query_wall_ms": self.clickhouse_query_wall_ms,
+            "loader_peak_rss_kb": self.loader_peak_rss_kb,
         }
 
 
@@ -91,6 +105,16 @@ def sha256_file(path: Path) -> str:
 
 def ensure_loader_state_schema(connection: sqlite3.Connection, schema_path: Path) -> None:
     connection.executescript(schema_path.read_text(encoding="utf-8"))
+
+
+def current_process_peak_rss_kb() -> int:
+    if resource is None:
+        return 0
+    return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+
+
+def safe_query_id_part(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.:-]+", "-", value)
 
 
 class Boto3S3BufferClient:
@@ -123,6 +147,10 @@ class ClickHouseClientTarget:
         self.user = user
         self.password = password
         self.secure = secure
+        self._active_run_id: str | None = None
+        self._active_segment_id: str | None = None
+        self._active_metrics: SegmentMetrics | None = None
+        self._query_sequence: int = 0
 
     def _base_args(self) -> list[str]:
         args = [
@@ -140,33 +168,68 @@ class ClickHouseClientTarget:
             args.append("--secure")
         return args
 
-    def _run_query(self, query: str, input_text: str | None = None) -> str:
-        args = self._base_args() + ["--query", query]
+    def begin_segment(self, run_id: str, segment_id: str, metrics: SegmentMetrics) -> None:
+        self._active_run_id = run_id
+        self._active_segment_id = segment_id
+        self._active_metrics = metrics
+        self._query_sequence = 0
+
+    def end_segment(self) -> None:
+        self._active_run_id = None
+        self._active_segment_id = None
+        self._active_metrics = None
+        self._query_sequence = 0
+
+    def _run_query(self, query: str, input_text: str | None = None, step: str = "query") -> str:
+        args = self._base_args()
+        started = time.perf_counter()
+        if self._active_run_id is not None and self._active_segment_id is not None:
+            self._query_sequence += 1
+            query_id = ":".join(
+                (
+                    "loader",
+                    safe_query_id_part(self._active_run_id),
+                    safe_query_id_part(self._active_segment_id),
+                    f"{self._query_sequence:05d}",
+                    safe_query_id_part(step),
+                )
+            )
+            args.extend(["--query_id", query_id])
+        args += ["--query", query]
         completed = subprocess.run(args, input=input_text, text=True, capture_output=True, check=True)
+        if self._active_metrics is not None:
+            elapsed = int((time.perf_counter() - started) * 1000)
+            self._active_metrics.clickhouse_query_count += 1
+            self._active_metrics.clickhouse_client_process_count += 1
+            self._active_metrics.clickhouse_query_wall_ms += elapsed
+            self._active_metrics.loader_peak_rss_kb = max(
+                self._active_metrics.loader_peak_rss_kb,
+                current_process_peak_rss_kb(),
+            )
         return completed.stdout.strip()
 
-    def insert_json_rows(self, table_name: str, rows: list[dict[str, Any]]) -> None:
+    def insert_json_rows(self, table_name: str, rows: list[dict[str, Any]], step: str) -> None:
         if not rows:
             return
         payload = "\n".join(json.dumps(row, ensure_ascii=True) for row in rows) + "\n"
-        self._run_query(f"INSERT INTO {table_name} FORMAT JSONEachRow", input_text=payload)
+        self._run_query(f"INSERT INTO {table_name} FORMAT JSONEachRow", input_text=payload, step=step)
 
-    def count_rows(self, table_name: str, where_clause: str) -> int:
-        result = self._run_query(f"SELECT count() FROM {table_name} WHERE {where_clause}")
+    def count_rows(self, table_name: str, where_clause: str, step: str = "count_rows") -> int:
+        result = self._run_query(f"SELECT count() FROM {table_name} WHERE {where_clause}", step=step)
         return int(result or "0")
 
     def reset_stage_tables(self) -> None:
-        self._run_query(f"TRUNCATE TABLE {EVENTS_STAGE_TABLE}")
-        self._run_query(f"TRUNCATE TABLE {LEGS_STAGE_TABLE}")
+        self._run_query(f"TRUNCATE TABLE {EVENTS_STAGE_TABLE}", step="truncate_events_stage")
+        self._run_query(f"TRUNCATE TABLE {LEGS_STAGE_TABLE}", step="truncate_legs_stage")
 
-    def append_stage_rows(self, event_rows: list[dict[str, Any]], leg_rows: list[dict[str, Any]]) -> None:
-        self.insert_json_rows(EVENTS_STAGE_TABLE, event_rows)
-        self.insert_json_rows(LEGS_STAGE_TABLE, leg_rows)
+    def append_stage_rows(self, event_rows: list[dict[str, Any]], leg_rows: list[dict[str, Any]], batch_index: int) -> None:
+        self.insert_json_rows(EVENTS_STAGE_TABLE, event_rows, step=f"insert_events_stage_batch_{batch_index:05d}")
+        self.insert_json_rows(LEGS_STAGE_TABLE, leg_rows, step=f"insert_legs_stage_batch_{batch_index:05d}")
 
     def merge_segment(self, run_id: str, segment_id: str) -> dict[str, int]:
         where_clause = f"load_run_id = {sql_quote(run_id)} AND source_segment_id = {sql_quote(segment_id)}"
-        before_events = self.count_rows(EVENTS_TABLE, where_clause)
-        before_legs = self.count_rows(LEGS_TABLE, where_clause)
+        before_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_before_events")
+        before_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_before_legs")
         self._run_query(
             f"""
             INSERT INTO {EVENTS_TABLE}
@@ -177,7 +240,8 @@ class ClickHouseClientTarget:
                 FROM {EVENTS_TABLE} c
                 WHERE c.event_id = s.event_id
             )
-            """
+            """,
+            step="merge_events",
         )
         self._run_query(
             f"""
@@ -189,10 +253,11 @@ class ClickHouseClientTarget:
                 FROM {LEGS_TABLE} c
                 WHERE c.leg_id = s.leg_id
             )
-            """
+            """,
+            step="merge_legs",
         )
-        after_events = self.count_rows(EVENTS_TABLE, where_clause)
-        after_legs = self.count_rows(LEGS_TABLE, where_clause)
+        after_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_after_events")
+        after_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_after_legs")
         self.reset_stage_tables()
         return {
             "events_inserted": after_events - before_events,
@@ -200,7 +265,7 @@ class ClickHouseClientTarget:
         }
 
     def insert_load_audit(self, rows: list[dict[str, Any]]) -> None:
-        self.insert_json_rows(AUDIT_TABLE, rows)
+        self.insert_json_rows(AUDIT_TABLE, rows, step="insert_load_audit")
 
 
 def iter_segment_records(local_path: Path, codec: str) -> Iterator[dict[str, Any]]:
@@ -523,8 +588,8 @@ def default_clickhouse_target_from_env() -> ClickHouseClientTarget:
 
 def count_segment_rows(load_target: Any, run_id: str, segment_id: str) -> tuple[int, int]:
     where_clause = f"load_run_id = {sql_quote(run_id)} AND source_segment_id = {sql_quote(segment_id)}"
-    events = load_target.count_rows(EVENTS_TABLE, where_clause)
-    legs = load_target.count_rows(LEGS_TABLE, where_clause)
+    events = load_target.count_rows(EVENTS_TABLE, where_clause, step="validate_event_count")
+    legs = load_target.count_rows(LEGS_TABLE, where_clause, step="validate_leg_count")
     return events, legs
 
 
@@ -557,6 +622,7 @@ def load_run_from_s3(
     enforce_single_worker_mode()
     storage = storage_client or Boto3S3BufferClient(region_name=region)
     target = load_target or default_clickhouse_target_from_env()
+    loader_db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(loader_db_path)
     lock_owner: str | None = None
     try:
@@ -588,6 +654,9 @@ def load_run_from_s3(
 
             metrics = SegmentMetrics()
             merge_counts = {"events_inserted": 0, "legs_inserted": 0}
+            metrics.loader_peak_rss_kb = max(metrics.loader_peak_rss_kb, current_process_peak_rss_kb())
+            if hasattr(target, "begin_segment"):
+                target.begin_segment(run_id, segment_manifest["segment_id"], metrics)
             target.reset_stage_tables()
             try:
                 with tempfile.TemporaryDirectory() as temp_dir:
@@ -613,7 +682,9 @@ def load_run_from_s3(
 
                     seen_event_ids: set[str] = set()
                     seen_leg_ids: set[str] = set()
+                    batch_index = 0
                     for batch_records in iter_record_batches(local_segment_path, str(segment_manifest["codec"]), LOADER_RECORD_BATCH_SIZE):
+                        batch_index += 1
                         metrics.record_count += len(batch_records)
                         normalize_started = time.perf_counter()
                         event_rows, leg_rows = normalize_records(batch_records, segment_manifest, run_id)
@@ -622,9 +693,11 @@ def load_run_from_s3(
                         metrics.normalize_ms += elapsed_ms(normalize_started)
                         metrics.event_rows_expected += len(event_rows)
                         metrics.leg_rows_expected += len(leg_rows)
+                        metrics.loader_peak_rss_kb = max(metrics.loader_peak_rss_kb, current_process_peak_rss_kb())
                         stage_started = time.perf_counter()
-                        target.append_stage_rows(event_rows, leg_rows)
+                        target.append_stage_rows(event_rows, leg_rows, batch_index=batch_index)
                         metrics.stage_ms += elapsed_ms(stage_started)
+                        metrics.loader_peak_rss_kb = max(metrics.loader_peak_rss_kb, current_process_peak_rss_kb())
 
                     if metrics.record_count != int(segment_manifest["record_count"]):
                         raise RuntimeError(
@@ -671,6 +744,9 @@ def load_run_from_s3(
                 upsert_loader_run(connection, run_id, bucket, prefix_root, "failed", str(exc))
                 connection.commit()
                 raise
+            finally:
+                if hasattr(target, "end_segment"):
+                    target.end_segment()
 
         upsert_loader_run(connection, run_id, bucket, prefix_root, "loading")
         connection.execute("UPDATE loader_runs SET finished_at = ? WHERE run_id = ?", (utc_now_iso(), run_id))
@@ -685,6 +761,7 @@ def load_run_from_s3(
 
 def validate_loaded_run(run_id: str, loader_db_path: Path, loader_schema_path: Path, load_target: Any | None = None) -> dict[str, Any]:
     target = load_target or default_clickhouse_target_from_env()
+    loader_db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(loader_db_path)
     try:
         ensure_loader_state_schema(connection, loader_schema_path)

@@ -81,11 +81,17 @@ class FakeClickHouseTarget:
         self.legs: dict[str, dict[str, object]] = {}
         self.audit_rows: list[dict[str, object]] = []
 
+    def begin_segment(self, run_id: str, segment_id: str, metrics) -> None:
+        return None
+
+    def end_segment(self) -> None:
+        return None
+
     def reset_stage_tables(self) -> None:
         self.staging_events = []
         self.staging_legs = []
 
-    def append_stage_rows(self, event_rows, leg_rows) -> None:
+    def append_stage_rows(self, event_rows, leg_rows, batch_index: int) -> None:
         self.staging_events.extend(event_rows)
         self.staging_legs.extend(leg_rows)
 
@@ -106,11 +112,33 @@ class FakeClickHouseTarget:
     def insert_load_audit(self, rows) -> None:
         self.audit_rows.extend(rows)
 
-    def count_rows(self, table_name: str, where_clause: str) -> int:
+    def count_rows(self, table_name: str, where_clause: str, step: str = "count_rows") -> int:
+        run_marker = "load_run_id = '"
+        segment_marker = "source_segment_id = '"
+        run_id = None
+        segment_id = None
+        if run_marker in where_clause:
+            run_id = where_clause.split(run_marker, 1)[1].split("'", 1)[0]
+        if segment_marker in where_clause:
+            segment_id = where_clause.split(segment_marker, 1)[1].split("'", 1)[0]
         if table_name.endswith("trc20_transfer_events"):
-            return len(self.events)
+            return len(
+                [
+                    row
+                    for row in self.events.values()
+                    if (run_id is None or row["load_run_id"] == run_id)
+                    and (segment_id is None or row["source_segment_id"] == segment_id)
+                ]
+            )
         if table_name.endswith("address_transfer_legs"):
-            return len(self.legs)
+            return len(
+                [
+                    row
+                    for row in self.legs.values()
+                    if (run_id is None or row["load_run_id"] == run_id)
+                    and (segment_id is None or row["source_segment_id"] == segment_id)
+                ]
+            )
         raise AssertionError(f"unexpected table_name {table_name}")
 
 
@@ -201,6 +229,46 @@ class LoaderE2EDemoTest(unittest.TestCase):
         self.assertEqual(replay_result["segments"][0]["legs_inserted"], 0)
         self.assertEqual(len(target.events), 3)
         self.assertEqual(len(target.legs), 6)
+
+    def test_loader_consumes_multi_segment_demo_run(self) -> None:
+        self.generator.generate_demo_run(
+            self.run_root,
+            self.run_id,
+            self.runtime_db,
+            segment_count=3,
+            records_per_segment=4,
+        )
+        fake_s3 = FakeS3BufferClient()
+        self.uploader.upload_sealed_segments(
+            db_path=self.runtime_db,
+            schema_path=SQLITE_SCHEMA_002,
+            bucket=self.bucket,
+            prefix_root=self.prefix_root,
+            run_id=self.run_id,
+            s3_client=fake_s3,
+            sse_mode="aws:kms",
+            kms_key_arn="arn:aws:kms:eu-central-1:913378704801:key/demo",
+            region="eu-central-1",
+            java_tron_version="GreatVoyage-v4.8.1",
+            config_sha256="configsha-demo",
+            plugin_build_id="plugin-build-demo",
+            resolved_end_block=RESOLVED_END_BLOCK,
+        )
+        target = FakeClickHouseTarget()
+        load_result = self.loader.load_run_from_s3(
+            run_id=self.run_id,
+            bucket=self.bucket,
+            prefix_root=self.prefix_root,
+            loader_db_path=self.loader_db,
+            loader_schema_path=LOADER_SCHEMA,
+            storage_client=fake_s3,
+            load_target=target,
+            region="eu-central-1",
+        )
+        self.assertEqual(len(load_result["segments"]), 3)
+        self.assertEqual(sum(segment["metrics"]["record_count"] for segment in load_result["segments"]), 12)
+        self.assertEqual(len(target.events), 12)
+        self.assertEqual(len(target.legs), 24)
 
 
 if __name__ == "__main__":

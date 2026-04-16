@@ -120,6 +120,37 @@ class DemoChainTest(unittest.TestCase):
         }
         self.assertTrue(expected_keys.issubset(set(fake_s3.objects.keys())))
 
+    def test_multi_segment_generator_and_uploader_produce_demo_run(self) -> None:
+        generated = self.generator.generate_demo_run(
+            self.run_root,
+            self.run_id,
+            self.db_path,
+            segment_count=4,
+            records_per_segment=5,
+        )
+        self.assertEqual(generated["segment_count"], 4)
+        self.assertEqual(generated["total_record_count"], 20)
+
+        fake_s3 = FakeS3Client()
+        uploaded = self.uploader.upload_sealed_segments(
+            db_path=self.db_path,
+            schema_path=SQLITE_SCHEMA_002,
+            bucket=self.bucket,
+            prefix_root=self.prefix_root,
+            run_id=self.run_id,
+            s3_client=fake_s3,
+            sse_mode="aws:kms",
+            kms_key_arn="arn:aws:kms:eu-central-1:913378704801:key/demo",
+            region="eu-central-1",
+            java_tron_version="GreatVoyage-v4.8.1",
+            config_sha256="configsha-demo",
+            plugin_build_id="plugin-build-demo",
+            resolved_end_block=RESOLVED_END_BLOCK,
+        )
+        self.assertEqual(len(uploaded), 4)
+        run_manifest = json.loads((self.run_root / "manifests" / "run.json").read_text(encoding="utf-8"))
+        self.assertEqual(run_manifest["segment_count"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()
