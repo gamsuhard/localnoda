@@ -1,0 +1,42 @@
+{
+  "run_id": "real-slice-20230901t0000z-20260416t114407z",
+  "replay_delta_counts": {
+    "new_canonical_event_rows": 0,
+    "new_leg_rows": 0
+  },
+  "load_audit_rows": [
+    {
+      "target_table": "tron_usdt_slice_20230901_20260416t114407z.address_transfer_legs",
+      "inserted_row_count": 69380,
+      "source_row_count": 69380,
+      "started_at": "2026-04-16 08:06:27.000",
+      "finished_at": "2026-04-16 08:06:27.000",
+      "note": "{\"bytes_read\":3163777,\"record_count\":34690,\"event_rows_expected\":34690,\"leg_rows_expected\":69380,\"s3_read_ms\":176,\"normalize_ms\":1222,\"stage_ms\":19242,\"merge_ms\":2403,\"audit_ms\":0,\"validation_ms\":0}"
+    },
+    {
+      "target_table": "tron_usdt_slice_20230901_20260416t114407z.trc20_transfer_events",
+      "inserted_row_count": 34690,
+      "source_row_count": 34690,
+      "started_at": "2026-04-16 08:06:27.000",
+      "finished_at": "2026-04-16 08:06:27.000",
+      "note": "{\"bytes_read\":3163777,\"record_count\":34690,\"event_rows_expected\":34690,\"leg_rows_expected\":69380,\"s3_read_ms\":176,\"normalize_ms\":1222,\"stage_ms\":19242,\"merge_ms\":2403,\"audit_ms\":0,\"validation_ms\":0}"
+    },
+    {
+      "target_table": "tron_usdt_slice_20230901_20260416t114407z.address_transfer_legs",
+      "inserted_row_count": 0,
+      "source_row_count": 69380,
+      "started_at": "2026-04-16 08:06:56.000",
+      "finished_at": "2026-04-16 08:06:56.000",
+      "note": "{\"bytes_read\":3163777,\"record_count\":34690,\"event_rows_expected\":34690,\"leg_rows_expected\":69380,\"s3_read_ms\":137,\"normalize_ms\":1459,\"stage_ms\":21909,\"merge_ms\":1452,\"audit_ms\":0,\"validation_ms\":0}"
+    },
+    {
+      "target_table": "tron_usdt_slice_20230901_20260416t114407z.trc20_transfer_events",
+      "inserted_row_count": 0,
+      "source_row_count": 34690,
+      "started_at": "2026-04-16 08:06:56.000",
+      "finished_at": "2026-04-16 08:06:56.000",
+      "note": "{\"bytes_read\":3163777,\"record_count\":34690,\"event_rows_expected\":34690,\"leg_rows_expected\":69380,\"s3_read_ms\":137,\"normalize_ms\":1459,\"stage_ms\":21909,\"merge_ms\":1452,\"audit_ms\":0,\"validation_ms\":0}"
+    }
+  ],
+  "status": "idempotent"
+}

@@ -1,0 +1,37 @@
+{
+  "run_id": "real-slice-20230901t0000z-20260416t114407z",
+  "table_stats": [
+    {
+      "table": "address_transfer_legs",
+      "rows": 69380,
+      "bytes_on_disk": 9222347,
+      "data_compressed_bytes": 9219844,
+      "data_uncompressed_bytes": 36565882
+    },
+    {
+      "table": "load_audit",
+      "rows": 4,
+      "bytes_on_disk": 4297,
+      "data_compressed_bytes": 2288,
+      "data_uncompressed_bytes": 3111
+    },
+    {
+      "table": "trc20_transfer_events",
+      "rows": 34690,
+      "bytes_on_disk": 4912377,
+      "data_compressed_bytes": 4910121,
+      "data_uncompressed_bytes": 26123093
+    }
+  ],
+  "rows": 104074,
+  "bytes_on_disk": 14139021,
+  "data_compressed_bytes": 14132253,
+  "data_uncompressed_bytes": 62692086,
+  "rows_per_day_estimate": 832560,
+  "rows_per_month_30d_estimate": 24976800,
+  "compressed_bytes_per_event_estimate": 407.3869,
+  "compressed_bytes_per_transfer_pair_estimate": 135.7956,
+  "projected_full_period_days": 958,
+  "projected_full_period_event_rows": 797592480,
+  "projected_full_period_compressed_bytes": 324928760976
+}

@@ -1,0 +1,105 @@
+{
+  "run_id": "real-slice-20230901t0000z-20260416t114407z",
+  "frozen_inputs": {
+    "run_id": "real-slice-20230901t0000z-20260416t114407z",
+    "tree_artifact_sha256": "d6619d951ae08da50a1a4fe503dd27490c946fced1481786817587fe75f74edc",
+    "tree_artifact_source": "s3://goldusdt-v2-stage-913378704801-ops/codex/local-tron-usdt-backfill/workspace-20260416t114407.tar.gz",
+    "tree_git_commit": "2dd27f78efeaba342d9c4a943a62510feebb9aca",
+    "real_slice": {
+      "start_utc": "2023-09-01T00:00:00Z",
+      "end_utc": "2023-09-01T01:00:00Z",
+      "start_block": 54298720,
+      "resolved_end_block": 54299918,
+      "s3_prefix_root": "providers/tron-usdt-backfill/usdt-transfer-oneoff",
+      "replay_policy": "one_immediate_replay_exact_same_slice"
+    },
+    "target_schema": "tron_usdt_slice_20230901_20260416t114407z",
+    "loader_concurrency": 1,
+    "loader_record_batch_size": 1000
+  },
+  "deploy_metadata": {
+    "hostname": "c-cobaltaws-bq-32-server-q7ekqvn-0",
+    "workspace_artifact_sha256": "d6619d951ae08da50a1a4fe503dd27490c946fced1481786817587fe75f74edc",
+    "workspace_artifact_source_redacted": "https://goldusdt-v2-stage-913378704801-ops.s3.eu-central-1.amazonaws.com/codex/local-tron-usdt-backfill/workspace-20260416t114407.tar.gz",
+    "python_version": "Python 3.11.14"
+  },
+  "loader_runtime_env_safe": {
+    "CLICKHOUSE_HOST": "nyk32aoz97.eu-central-1.vpce.aws.clickhouse.cloud",
+    "CLICKHOUSE_PORT": "9440",
+    "CLICKHOUSE_DATABASE": "tron_usdt_slice_20230901_20260416t114407z",
+    "CLICKHOUSE_SECURE": "1",
+    "LOADER_PYTHON_BIN": "/srv/local-tron-usdt-backfill/.venvs/loader/bin/python",
+    "LOADER_CONCURRENCY": "1",
+    "LOADER_RECORD_BATCH_SIZE": "1000",
+    "AWS_REGION": "eu-central-1",
+    "S3_BUFFER_BUCKET": "goldusdt-v2-stage-913378704801-raw",
+    "S3_BUFFER_PREFIX_ROOT": "providers/tron-usdt-backfill/usdt-transfer-oneoff"
+  },
+  "loader_state_export": {
+    "loader_runs": [
+      {
+        "run_id": "real-slice-20230901t0000z-20260416t114407z",
+        "s3_bucket": "goldusdt-v2-stage-913378704801-raw",
+        "s3_prefix_root": "providers/tron-usdt-backfill/usdt-transfer-oneoff",
+        "clickhouse_database": "tron_usdt_slice_20230901_20260416t114407z",
+        "status": "validated",
+        "started_at": "2026-04-16 08:06:03",
+        "finished_at": "2026-04-16T08:06:57Z",
+        "note": ""
+      }
+    ],
+    "loaded_segments": [
+      {
+        "run_id": "real-slice-20230901t0000z-20260416t114407z",
+        "segment_id": "real-slice-20230901t0000z-20260416t114407z-seg-000001",
+        "source_s3_key": "providers/tron-usdt-backfill/usdt-transfer-oneoff/runs/real-slice-20230901t0000z-20260416t114407z/segments/usdt_transfer_000001.ndjson.gz",
+        "source_sha256": "2cc0a4902e2f54ca281f21500b0bd5229e08a9d51a15d8bfe0b3b66884959923",
+        "status": "validated",
+        "claim_token": "real-slice-20230901t0000z-20260416t114407z-seg-000001:1776326790033",
+        "attempts": 2,
+        "bytes_read": 3163777,
+        "record_count": 34690,
+        "event_rows": 34690,
+        "leg_rows": 69380,
+        "s3_read_ms": 137,
+        "normalize_ms": 1459,
+        "stage_ms": 21909,
+        "merge_ms": 1452,
+        "audit_ms": 229,
+        "validation_ms": 307,
+        "claimed_at": "2026-04-16T08:06:30Z",
+        "load_started_at": "2026-04-16T08:06:30Z",
+        "merged_at": "2026-04-16T08:06:56Z",
+        "load_finished_at": "2026-04-16T08:06:56Z",
+        "last_error": null
+      }
+    ],
+    "segment_status_summary": {
+      "validated": 1
+    },
+    "per_segment_timing_summary": [
+      {
+        "segment_id": "real-slice-20230901t0000z-20260416t114407z-seg-000001",
+        "status": "validated",
+        "attempts": 2,
+        "bytes_read": 3163777,
+        "record_count": 34690,
+        "event_rows": 34690,
+        "leg_rows": 69380,
+        "s3_read_ms": 137,
+        "normalize_ms": 1459,
+        "stage_ms": 21909,
+        "merge_ms": 1452,
+        "audit_ms": 229,
+        "validation_ms": 307,
+        "last_error": null
+      }
+    ]
+  },
+  "clickhouse_counts": {
+    "canonical_event_row_count": 34690,
+    "address_leg_row_count": 69380,
+    "load_audit_row_count": 4
+  },
+  "status": "loaded_and_replayed"
+}
