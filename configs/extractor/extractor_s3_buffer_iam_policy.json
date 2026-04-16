@@ -1,0 +1,51 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadBucketLocation",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketLocation"
+      ],
+      "Resource": "arn:aws:s3:::goldusdt-v2-stage-913378704801-raw"
+    },
+    {
+      "Sid": "ListOnlyFrozenPrefix",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::goldusdt-v2-stage-913378704801-raw",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "providers/tron-usdt-backfill/usdt-transfer-oneoff",
+            "providers/tron-usdt-backfill/usdt-transfer-oneoff/*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "OperateOnlyFrozenObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": "arn:aws:s3:::goldusdt-v2-stage-913378704801-raw/providers/tron-usdt-backfill/usdt-transfer-oneoff/*"
+    },
+    {
+      "Sid": "UseOnlyStageRawKmsKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": "arn:aws:kms:eu-central-1:913378704801:key/81eb65d1-90dc-4df1-a8ca-6dde2bb109d3"
+    }
+  ]
+}

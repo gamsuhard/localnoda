@@ -1,0 +1,55 @@
+plugins {
+    id 'base'
+}
+
+ext {
+    workspaceRootPath = file(findProperty('workspaceRoot') ?: '../..')
+    workspacePluginDir = new File(workspaceRootPath, 'artifacts/plugins')
+}
+
+subprojects {
+    apply plugin: 'java'
+
+    group = rootProject.findProperty('group')
+    version = rootProject.findProperty('version')
+    sourceCompatibility = JavaVersion.toVersion(rootProject.findProperty('javaVersion'))
+    targetCompatibility = JavaVersion.toVersion(rootProject.findProperty('javaVersion'))
+
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        compileOnly "org.pf4j:pf4j:${pf4jVersion}"
+        annotationProcessor "org.pf4j:pf4j:${pf4jVersion}"
+        compileOnly "org.slf4j:slf4j-api:${slf4jVersion}"
+        testImplementation 'junit:junit:4.13.2'
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+    }
+
+    tasks.withType(AbstractArchiveTask).configureEach {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
+}
+
+tasks.register('pluginZip', Zip) {
+    dependsOn ':filesinkplugin:jar'
+
+    archiveFileName = 'plugin-file-sink.zip'
+    destinationDirectory = workspacePluginDir
+
+    into('classes') {
+        from(project(':filesinkplugin').tasks.named('jar'))
+    }
+
+    into('lib') {
+        from(project(':filesinkplugin').configurations.runtimeClasspath)
+    }
+}
+
+tasks.register('assembleWorkspacePlugin') {
+    dependsOn 'pluginZip'
+}

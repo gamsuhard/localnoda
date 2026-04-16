@@ -1,0 +1,14 @@
+{
+  "manifest_version": 1,
+  "block": "03",
+  "kind": "filter_manifest",
+  "chain": "tron",
+  "contract_address_base58": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+  "event_signature": "Transfer(address,address,uint256)",
+  "topic0": "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+  "subscription_scope": {
+    "one_contract_only": true,
+    "one_event_family_only": true,
+    "broad_all_trc20_subscription_forbidden": true
+  }
+}

@@ -1,0 +1,43 @@
+# -----------------------------------------------------------------------------
+# Merge this overlay into the official java-tron config.conf selected in Block 02
+# Do not treat this file as a complete standalone config.
+# -----------------------------------------------------------------------------
+
+event.subscribe = {
+  version = 1
+  startSyncBlockNum = __START_BLOCK__
+
+  native = {
+    useNativeQueue = false
+  }
+
+  # Absolute path to the custom plugin zip to be produced in Block 04.
+  path = "/srv/local-tron-usdt-backfill/artifacts/plugins/plugin-file-sink.zip"
+
+  # Kept blank for the custom local-file sink unless Block 04 needs a control socket.
+  server = ""
+  dbconfig = ""
+  contractParse = true
+
+  topics = [
+    {
+      triggerName = "contractlog"
+      enable = false
+      topic = "contractlog"
+      redundancy = false
+    },
+    {
+      triggerName = "soliditylog"
+      enable = true
+      topic = "soliditylog"
+      redundancy = false
+    }
+  ]
+
+  filter = {
+    fromblock = ""
+    toblock = ""
+    contractAddress = ["TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"]
+    contractTopic = ["__TRANSFER_TOPIC0__"]
+  }
+}

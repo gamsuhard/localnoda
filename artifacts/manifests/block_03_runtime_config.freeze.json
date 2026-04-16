@@ -1,0 +1,47 @@
+{
+  "manifest_version": 1,
+  "block": "03",
+  "kind": "runtime_config_freeze",
+  "network": "tron-mainnet",
+  "chain": "tron",
+  "asset": "usdt",
+  "java_tron_version": "GreatVoyage-v4.8.1",
+  "event_framework_version": "v2",
+  "config_sha256": null,
+  "plugin_type": "custom-file-sink",
+  "plugin_build_id": null,
+  "sink_format": "ndjson",
+  "compression": "gzip",
+  "segment_target_mb": null,
+  "s3_bucket": "goldusdt-v2-stage-913378704801-raw",
+  "s3_prefix": "providers/tron-usdt-backfill/usdt-transfer-oneoff",
+  "kms_key_arn": "arn:aws:kms:eu-central-1:913378704801:key/81eb65d1-90dc-4df1-a8ca-6dde2bb109d3",
+  "extractor_region": "ap-southeast-1",
+  "fullnode": {
+    "event_service_framework_version": 2,
+    "event_subscribe_version": 1,
+    "startSyncBlockNum": 54298720,
+    "native": {
+      "useNativeQueue": false
+    },
+    "topics": [
+      {
+        "triggerName": "soliditylog",
+        "enable": true,
+        "topic": "soliditylog",
+        "redundancy": false
+      }
+    ],
+    "filter": {
+      "fromblock": "",
+      "toblock": "",
+      "contractAddress": [
+        "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+      ],
+      "contractTopic": [
+        "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+      ]
+    }
+  },
+  "end_block_policy": "bounded_at_run_start"
+}

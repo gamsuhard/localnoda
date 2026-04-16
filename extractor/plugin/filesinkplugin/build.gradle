@@ -1,0 +1,15 @@
+dependencies {
+    compileOnly project(':api')
+    implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+}
+
+jar {
+    manifest {
+        attributes(
+                'Plugin-Class': "${pluginClass}",
+                'Plugin-Id': "${pluginId}",
+                'Plugin-Version': "${version}",
+                'Plugin-Provider': "${pluginProvider}"
+        )
+    }
+}

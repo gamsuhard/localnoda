@@ -1,0 +1,21 @@
+{
+  "manifest_version": 1,
+  "kind": "loader_manifest",
+  "input_run_id": "tron-usdt-backfill-YYYYMMDD-HHMMSSZ",
+  "input_segments": [],
+  "target_tables": [
+    "tron_usdt_local.trc20_transfer_events",
+    "tron_usdt_local.address_transfer_legs",
+    "tron_usdt_local.load_audit"
+  ],
+  "schema_version": "010_core_schema.sql",
+  "parser_version": "tron_usdt_transfer_normalizer@v1",
+  "load_mode": "append-idempotent",
+  "dedupe_key_definition": {
+    "events": "event_id",
+    "legs": "leg_id"
+  },
+  "load_started_at": "__FILL__",
+  "load_finished_at": "__FILL__",
+  "status": "planned"
+}

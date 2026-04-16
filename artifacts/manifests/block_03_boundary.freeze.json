@@ -1,0 +1,39 @@
+{
+  "manifest_version": 1,
+  "block": "03",
+  "kind": "extraction_boundary_freeze",
+  "network": "tron-mainnet",
+  "mode": "oneoff-usdt-transfer-backfill",
+  "chain": "tron",
+  "asset": "usdt",
+  "contract_address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+  "event_type": "soliditylog",
+  "topic0": "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+  "start_time_utc": "2023-09-01T00:00:00Z",
+  "target_start_timestamp_utc": "2023-09-01T00:00:00Z",
+  "boundary_rule": "first block with block_timestamp >= target_start_timestamp_utc",
+  "start_block": 54298720,
+  "start_block_number": 54298720,
+  "start_block_timestamp_ms": 1693526400000,
+  "start_block_timestamp_utc": "2023-09-01T00:00:00Z",
+  "start_block_id": "00000000033c88604c060f17f52b6964ab97740bc05995c77246b78d9853e1a9",
+  "previous_block_number": 54298719,
+  "previous_block_timestamp_ms": 1693526397000,
+  "previous_block_timestamp_utc": "2023-08-31T23:59:57Z",
+  "previous_block_id": "00000000033c885f49a0284117b93098baff67e925356018fb3fb67ea43c7bda",
+  "end_policy": "bounded_at_run_start",
+  "resolved_end_block": null,
+  "resolved_end_block_timestamp_ms": null,
+  "exact_end_block_number": null,
+  "end_block_policy": "resolve approved solidified tip when bounded extraction run starts",
+  "resolved_at_utc": "2026-04-15T12:41:00Z",
+  "resolved_via": {
+    "method": "public_tron_api_binary_search",
+    "api_base": "https://api.trongrid.io",
+    "resolved_at_utc": "2026-04-15T12:41:00Z"
+  },
+  "notes": [
+    "end block remains intentionally unresolved until bounded extraction run start",
+    "freeze uses first block with timestamp >= requested UTC boundary"
+  ]
+}

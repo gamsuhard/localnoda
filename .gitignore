@@ -1,0 +1,44 @@
+# Secrets and local config copies
+*.env
+*.local
+runtime/*.env
+configs/**/config.conf
+
+# Runtime state
+runtime/*.sqlite
+runtime/*.sqlite-*
+runtime/*.db
+runtime/*.lock
+
+# Heavy data
+raw/**
+!raw/.gitkeep
+logs/**
+!logs/.gitkeep
+reports/**
+!reports/.gitkeep
+artifacts/plugins/*.zip
+
+# TRON node data / snapshots
+*.tar
+*.tar.gz
+*.tgz
+*.lz4
+*.sst
+output-directory/**
+
+# Build / temp
+build/
+out/
+.gradle/
+extractor/plugin/**/build/
+scripts/**/__pycache__/
+__pycache__/
+*.pyc
+*.pyo
+*.class
+*.jar
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db

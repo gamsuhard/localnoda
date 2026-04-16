@@ -1,0 +1,16 @@
+{
+  "manifest_version": 1,
+  "kind": "run_manifest",
+  "run_id": "tron-usdt-backfill-YYYYMMDD-HHMMSSZ",
+  "stream_name": "usdt_transfer",
+  "contract_address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+  "topic0": "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+  "start_block": 54298720,
+  "end_policy": "bounded_at_run_start",
+  "resolved_end_block": "__FILL__",
+  "segment_count": "__FILL__",
+  "segments_prefix": "providers/tron-usdt-backfill/usdt-transfer-oneoff/runs/<run_id>/segments/",
+  "runtime_manifest_s3_key": "providers/tron-usdt-backfill/usdt-transfer-oneoff/runs/<run_id>/manifests/runtime.json",
+  "created_at_utc": "__FILL__",
+  "status": "open"
+}

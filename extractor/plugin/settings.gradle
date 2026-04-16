@@ -1,0 +1,4 @@
+rootProject.name = 'tron-file-sink-plugin'
+
+include 'api'
+include 'filesinkplugin'
