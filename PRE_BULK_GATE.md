@@ -51,6 +51,8 @@ After a successful run:
 
 - loader concurrency stays `1`
 - global staging tables remain single-worker only
+- loader runtime is reproducible only through `LOADER_PYTHON_BIN` from the pinned loader venv
+- system `python3` is not the canonical interpreter contract for loader-side validation or secret hydration
 - bulk run remains blocked until this exact-tree evidence is reviewed
 - disposable validation schema must be separate from any future bulk target schema
 - medium rehearsal is for throughput and bounded-memory confidence, not for analytical completeness

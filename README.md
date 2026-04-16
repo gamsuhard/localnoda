@@ -58,6 +58,7 @@ This workspace currently covers:
 - No permanent FullNode implied by this repo
 - No Terraform implied by this repo
 - No AWS secrets stored in the repo
+- Loader-side runtime is reproducible only through `LOADER_PYTHON_BIN` from the pinned loader venv, not through system `python3`
 - No real bulk historical load should be treated as approved until a fresh server-side disposable-schema validation is rerun from this exact tree
 - No pre-bulk gate evidence should be treated as durable unless the workspace artifact sha256 is captured alongside the reports
 

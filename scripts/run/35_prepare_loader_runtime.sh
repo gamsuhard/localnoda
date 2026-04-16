@@ -13,15 +13,47 @@ set -euo pipefail
 : "${S3_BUFFER_BUCKET:=goldusdt-v2-stage-913378704801-raw}"
 : "${S3_BUFFER_PREFIX_ROOT:=providers/tron-usdt-backfill/usdt-transfer-oneoff}"
 
+if [ ! -f "$LOADER_PYTHON_BIN" ]; then
+  echo "LOADER_PYTHON_BIN does not exist: $LOADER_PYTHON_BIN" >&2
+  exit 1
+fi
+
+if [ ! -x "$LOADER_PYTHON_BIN" ]; then
+  echo "LOADER_PYTHON_BIN is not executable: $LOADER_PYTHON_BIN" >&2
+  exit 1
+fi
+
+if ! LOADER_PYTHON_VERSION="$("$LOADER_PYTHON_BIN" --version 2>&1)"; then
+  echo "LOADER_PYTHON_BIN failed --version check: $LOADER_PYTHON_BIN" >&2
+  exit 1
+fi
+
+if ! "$LOADER_PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'; then
+  echo "LOADER_PYTHON_BIN must be Python >= 3.10; got: $LOADER_PYTHON_VERSION" >&2
+  exit 1
+fi
+
 SECRET_JSON="$(aws secretsmanager get-secret-value \
   --secret-id "$CLICKHOUSE_SECRET_NAME" \
   --region "$AWS_REGION" \
   --query 'SecretString' \
   --output text)"
 
-CLICKHOUSE_HOST="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["private_dns_hostname"])' <<<"$SECRET_JSON")"
-CLICKHOUSE_USER="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["username"])' <<<"$SECRET_JSON")"
-CLICKHOUSE_PASSWORD="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["password"])' <<<"$SECRET_JSON")"
+mapfile -t CLICKHOUSE_SECRET_FIELDS < <(
+  printf '%s' "$SECRET_JSON" | "$LOADER_PYTHON_BIN" -c '
+import json
+import sys
+
+payload = json.load(sys.stdin)
+print(payload["private_dns_hostname"])
+print(payload["username"])
+print(payload["password"])
+'
+)
+
+CLICKHOUSE_HOST="${CLICKHOUSE_SECRET_FIELDS[0]:-}"
+CLICKHOUSE_USER="${CLICKHOUSE_SECRET_FIELDS[1]:-}"
+CLICKHOUSE_PASSWORD="${CLICKHOUSE_SECRET_FIELDS[2]:-}"
 
 for required_value in "$CLICKHOUSE_HOST" "$CLICKHOUSE_USER" "$CLICKHOUSE_PASSWORD"; do
   if [ -z "$required_value" ]; then

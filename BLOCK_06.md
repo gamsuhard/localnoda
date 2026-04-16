@@ -13,14 +13,15 @@ This block keeps the extractor and node runtime fully separate from the analytic
 1. TRON USDT transfer normalizer from raw `solidityLogTrigger` NDJSON into canonical event rows and wallet-leg rows
 2. Loader state schema for replay-safe run/segment tracking
 3. Loader runtime that:
-   - reads run and segment manifests from S3
-   - records explicit per-segment work items (`pending -> claimed -> loading -> merged -> validated | failed | quarantined`)
-   - enforces `loader concurrency = 1` while staging tables remain global
-   - reads raw segment payloads from S3
-   - downloads raw segments to local temp storage and normalizes them in bounded batches
-   - writes batches into staging tables first
-   - merges into canonical tables with dedupe on `event_id` and `leg_id`
-   - records `load_audit`
+    - reads run and segment manifests from S3
+    - records explicit per-segment work items (`pending -> claimed -> loading -> merged -> validated | failed | quarantined`)
+    - enforces `loader concurrency = 1` while staging tables remain global
+    - treats `LOADER_PYTHON_BIN` from the loader venv as the canonical interpreter for secret hydration and loader-side scripts
+    - reads raw segment payloads from S3
+    - downloads raw segments to local temp storage and normalizes them in bounded batches
+    - writes batches into staging tables first
+    - merges into canonical tables with dedupe on `event_id` and `leg_id`
+    - records `load_audit`
 4. Validation runtime for row-count and replay assertions
 5. Replay runtime for idempotent re-load of the same run
 6. Local synthetic end-to-end test against fake S3 + fake ClickHouse target
@@ -34,6 +35,7 @@ This block keeps the extractor and node runtime fully separate from the analytic
 - current staging layout is single-worker only until per-worker staging isolation exists
 - replay must not duplicate canonical events or legs
 - `load_audit` must record every segment load attempt
+- system `python3` is not part of the canonical interpreter contract for the loader path
 
 ## Acceptance criteria
 
