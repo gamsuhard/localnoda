@@ -1,0 +1,31 @@
+{
+  "timeStamp": 1693526400000,
+  "triggerName": "solidityLogTrigger",
+  "uniqueId": "7d3316245b690bc4755978a33c39e31e56e6c6f78287503d59384b81df186a5c_1",
+  "transactionId": "7d3316245b690bc4755978a33c39e31e56e6c6f78287503d59384b81df186a5c",
+  "contractAddress": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+  "callerAddress": "",
+  "originAddress": "TPAHDFtX4HBu9szadKeAfpCR7NPkpnxQs2",
+  "creatorAddress": "THPvaUhoh2Qn2y9THCZML3H815hhFhn5YC",
+  "blockNumber": 54298720,
+  "blockHash": "00000000033c88604c060f17f52b6964ab97740bc05995c77246b78d9853e1a9",
+  "removed": false,
+  "latestSolidifiedBlockNumber": 81833544,
+  "logInfo": null,
+  "rawData": {
+    "address": "a614f803b6fd780986a42c78ec9c7f77e6ded13c",
+    "topics": [
+      "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+      "00000000000000000000000090b1b9b199eb1c45db90f420c831a04b6236ee69",
+      "000000000000000000000000057cc0a8b19526af883ad8d3ebad043a2aaf7167"
+    ],
+    "data": "000000000000000000000000000000000000000000000000000000002cd29c00"
+  },
+  "abi": null,
+  "topicList": [
+    "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+    "00000000000000000000000090b1b9b199eb1c45db90f420c831a04b6236ee69",
+    "000000000000000000000000057cc0a8b19526af883ad8d3ebad043a2aaf7167"
+  ],
+  "data": "000000000000000000000000000000000000000000000000000000002cd29c00"
+}

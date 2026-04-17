@@ -30,7 +30,7 @@ event.subscribe = {
       triggerName = "soliditylog"
       enable = true
       topic = "soliditylog"
-      redundancy = false
+      redundancy = true
     }
   ]
 

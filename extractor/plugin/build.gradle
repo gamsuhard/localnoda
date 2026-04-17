@@ -42,7 +42,9 @@ tasks.register('pluginZip', Zip) {
     destinationDirectory = workspacePluginDir
 
     into('classes') {
-        from(project(':filesinkplugin').tasks.named('jar'))
+        from({
+            zipTree(project(':filesinkplugin').tasks.named('jar').get().archiveFile.get().asFile)
+        })
     }
 
     into('lib') {

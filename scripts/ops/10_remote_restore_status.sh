@@ -29,6 +29,7 @@ fi
 
 if [ -d /tron-data ]; then
   df -h /tron-data | awk 'NR==2 {print "tron_data_used="$3; print "tron_data_avail="$4; print "tron_data_usep="$5}'
+  df -B1 /tron-data | awk 'NR==2 {print "tron_data_used_bytes="$3; print "tron_data_avail_bytes="$4}'
 fi
 
 if [ -f "$BOOTSTRAP_LOG" ]; then

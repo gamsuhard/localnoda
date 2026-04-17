@@ -46,7 +46,9 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    temp_path = path.with_name(f"{path.name}.tmp")
+    temp_path.write_text(json.dumps(payload, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    temp_path.replace(path)
 
 
 def sha256_file(path: Path) -> str:
@@ -80,6 +82,14 @@ def run_root_for_segment(segment_path: Path) -> Path:
     return segment_path.parent.parent
 
 
+def workspace_root_for_db(db_path: Path) -> Path:
+    return db_path.resolve().parent.parent
+
+
+def raw_runs_root_for_db(db_path: Path) -> Path:
+    return workspace_root_for_db(db_path) / "raw" / "runs"
+
+
 def find_manifest_for_segment(segment_path: Path) -> Path:
     manifests_dir = run_root_for_segment(segment_path) / "manifests"
     for candidate in sorted(manifests_dir.glob("*.manifest.json")):
@@ -95,6 +105,16 @@ def list_segment_manifests(run_root: Path) -> list[tuple[Path, dict[str, Any]]]:
     for path in sorted(manifests_dir.glob("*.manifest.json")):
         manifests.append((path, load_json(path)))
     return sorted(manifests, key=lambda item: int(item[1]["segment_seq"]))
+
+
+def discover_run_roots(db_path: Path, run_id: str | None = None) -> list[Path]:
+    runs_root = raw_runs_root_for_db(db_path)
+    if run_id:
+        candidate = runs_root / run_id
+        return [candidate] if candidate.exists() else []
+    if not runs_root.exists():
+        return []
+    return sorted(path for path in runs_root.iterdir() if path.is_dir())
 
 
 def build_run_prefix(prefix_root: str, run_id: str) -> str:
@@ -296,6 +316,8 @@ def put_object_idempotent(
     key: str,
     local_path: Path,
     sha256_hex: str,
+    *,
+    allow_overwrite_on_mismatch: bool = False,
     sse_mode: str | None = None,
     kms_key_arn: str | None = None,
     content_type: str | None = None,
@@ -304,6 +326,17 @@ def put_object_idempotent(
     try:
         head = s3_client.head_object(bucket, key)
         if not head_matches_local(head, local_size, sha256_hex):
+            if allow_overwrite_on_mismatch:
+                head = s3_client.put_object(
+                    bucket=bucket,
+                    key=key,
+                    local_path=local_path,
+                    metadata={"sha256": sha256_hex, "file_size_bytes": str(local_size)},
+                    sse_mode=sse_mode,
+                    kms_key_arn=kms_key_arn,
+                    content_type=content_type,
+                )
+                return strip_etag(head.get("ETag")), True
             raise RuntimeError(f"remote object mismatch for s3://{bucket}/{key}")
         return strip_etag(head.get("ETag")), False
     except FileNotFoundError:
@@ -364,6 +397,99 @@ def select_sealed_segments(connection: sqlite3.Connection, run_id: str | None = 
     return [segment_row_from_tuple(row) for row in connection.execute(query, params).fetchall()]
 
 
+def reconcile_local_manifests(connection: sqlite3.Connection, db_path: Path, run_id: str | None = None) -> None:
+    for run_root in discover_run_roots(db_path, run_id=run_id):
+        manifest_entries = list_segment_manifests(run_root)
+        if not manifest_entries:
+            continue
+
+        current_run_id = str(manifest_entries[0][1]["run_id"])
+        start_block = manifest_entries[0][1].get("block_from")
+        end_block = manifest_entries[-1][1].get("block_to")
+
+        connection.execute(
+            """
+            INSERT INTO runs (run_id, run_type, status, start_block, end_block, extractor_host)
+            VALUES (?, 'extract', 'running', ?, ?, ?)
+            ON CONFLICT(run_id) DO UPDATE SET
+                start_block = COALESCE(runs.start_block, excluded.start_block),
+                end_block = COALESCE(runs.end_block, excluded.end_block),
+                extractor_host = COALESCE(runs.extractor_host, excluded.extractor_host),
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                current_run_id,
+                start_block,
+                end_block,
+                manifest_entries[0][1].get("extractor_instance_id"),
+            ),
+        )
+
+        for _, manifest in manifest_entries:
+            segment_status = str(manifest.get("status") or STATUS_SEALED)
+            connection.execute(
+                """
+                INSERT INTO segments (
+                    segment_id,
+                    run_id,
+                    segment_seq,
+                    file_path,
+                    codec,
+                    status,
+                    first_block,
+                    last_block,
+                    first_tx_hash,
+                    last_tx_hash,
+                    first_event_hint,
+                    last_event_hint,
+                    row_count,
+                    byte_count,
+                    sha256,
+                    opened_at,
+                    closed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(segment_id) DO UPDATE SET
+                    file_path = excluded.file_path,
+                    codec = excluded.codec,
+                    status = CASE
+                        WHEN segments.status IN ('validated', 'loaded', 'failed', 'quarantined') THEN segments.status
+                        ELSE excluded.status
+                    END,
+                    first_block = excluded.first_block,
+                    last_block = excluded.last_block,
+                    first_tx_hash = excluded.first_tx_hash,
+                    last_tx_hash = excluded.last_tx_hash,
+                    first_event_hint = excluded.first_event_hint,
+                    last_event_hint = excluded.last_event_hint,
+                    row_count = excluded.row_count,
+                    byte_count = excluded.byte_count,
+                    sha256 = excluded.sha256,
+                    opened_at = excluded.opened_at,
+                    closed_at = excluded.closed_at
+                """,
+                (
+                    manifest["segment_id"],
+                    current_run_id,
+                    int(manifest["segment_seq"]),
+                    manifest["local_path"],
+                    manifest.get("codec", "ndjson.gz"),
+                    segment_status,
+                    manifest.get("block_from"),
+                    manifest.get("block_to"),
+                    manifest.get("first_tx_hash"),
+                    manifest.get("last_tx_hash"),
+                    manifest.get("first_event_key"),
+                    manifest.get("last_event_key"),
+                    int(manifest.get("record_count", 0)),
+                    manifest.get("file_size_bytes"),
+                    manifest.get("sha256"),
+                    manifest.get("created_at_utc"),
+                    manifest.get("closed_at_utc"),
+                ),
+            )
+
+
 def upload_sealed_segments(
     db_path: Path,
     schema_path: Path,
@@ -383,6 +509,7 @@ def upload_sealed_segments(
     connection = sqlite3.connect(db_path)
     try:
         ensure_upload_state_schema(connection, schema_path)
+        reconcile_local_manifests(connection, db_path, run_id=run_id)
         connection.commit()
         segments = select_sealed_segments(connection, run_id=run_id)
         uploaded: list[dict[str, Any]] = []
@@ -476,6 +603,7 @@ def upload_sealed_segments(
                     key=remote_key,
                     local_path=local_path,
                     sha256_hex=sha256_file(local_path),
+                    allow_overwrite_on_mismatch=True,
                     sse_mode=sse_mode,
                     kms_key_arn=kms_key_arn,
                     content_type=content_type,

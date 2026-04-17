@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -61,22 +62,55 @@ def decode_log_index(payload: dict[str, Any]) -> int:
             continue
         return int(value)
     unique_id = str(payload.get("uniqueId", ""))
-    parts = unique_id.split("-")
+    parts = [part for part in re.split(r"[-_]", unique_id) if part]
     if len(parts) >= 2 and parts[-1].isdigit():
         return int(parts[-1])
     return 0
 
 
+def extract_topics(payload: dict[str, Any]) -> list[str]:
+    raw_data = payload.get("rawData")
+    if isinstance(raw_data, dict):
+        raw_topics = raw_data.get("topics")
+        if isinstance(raw_topics, list) and raw_topics:
+            return [str(item) for item in raw_topics]
+    topics = payload.get("topics") or payload.get("topicList") or []
+    return [str(item) for item in topics]
+
+
+def extract_contract_address(payload: dict[str, Any]) -> str:
+    for field_name in ("contractAddress", "address"):
+        value = payload.get(field_name)
+        if value:
+            return normalize_contract_address(str(value))
+    raw_data = payload.get("rawData")
+    if isinstance(raw_data, dict):
+        raw_address = normalize_hex(str(raw_data.get("address") or ""))
+        if len(raw_address) == 40:
+            return "41" + raw_address
+        return raw_address
+    return ""
+
+
+def extract_data_field(payload: dict[str, Any]) -> str:
+    if payload.get("data") is not None:
+        return str(payload.get("data") or "")
+    raw_data = payload.get("rawData")
+    if isinstance(raw_data, dict):
+        return str(raw_data.get("data") or "")
+    return ""
+
+
 def normalize_event(payload: dict[str, Any], segment_id: str, load_run_id: str) -> dict[str, Any]:
-    topics = payload.get("topics") or []
+    topics = extract_topics(payload)
     topic0 = normalize_hex(topics[0] if len(topics) > 0 else "")
     topic1 = normalize_hex(topics[1] if len(topics) > 1 else "")
     topic2 = normalize_hex(topics[2] if len(topics) > 2 else "")
     tx_hash = str(payload.get("transactionId") or "")
-    contract_address = normalize_contract_address(str(payload.get("address") or ""))
+    contract_address = extract_contract_address(payload)
     log_index = decode_log_index(payload)
     event_id = sha256_hex([tx_hash, str(log_index), contract_address.lower(), topic0])
-    amount_raw = decode_amount_raw(str(payload.get("data") or ""))
+    amount_raw = decode_amount_raw(extract_data_field(payload))
     amount_decimal = (Decimal(amount_raw) / USDT_DECIMALS).quantize(Decimal("0.000001"))
     return {
         "chain": "tron",
@@ -95,7 +129,7 @@ def normalize_event(payload: dict[str, Any], segment_id: str, load_run_id: str) 
         "raw_topic0": topic0,
         "raw_topic1": topic1,
         "raw_topic2": topic2,
-        "raw_data": str(payload.get("data") or ""),
+        "raw_data": extract_data_field(payload),
         "source_segment_id": segment_id,
         "load_run_id": load_run_id,
     }

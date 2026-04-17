@@ -33,6 +33,8 @@ curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 \
 curl --fail --location --retry 5 --retry-all-errors --connect-timeout 30 \
   "$TRON_CONFIG_URL" \
   -o "$TRON_CONFIG_PATH"
+# Official v4.8.1 config defaults to LEVELDB, but our snapshot is RocksDB.
+sed -i 's/db\.engine = "LEVELDB"/db.engine = "ROCKSDB"/' "$TRON_CONFIG_PATH"
 chmod 0755 "$TRON_HOME/bin/${TRON_RELEASE_JAR}"
 chmod 0644 "$TRON_CONFIG_PATH"
 chown -R "$TRON_USER:$TRON_USER" "$TRON_HOME" "$(dirname "$TRON_CONFIG_PATH")"

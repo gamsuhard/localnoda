@@ -17,10 +17,18 @@
   "s3_prefix": "providers/tron-usdt-backfill/usdt-transfer-oneoff",
   "kms_key_arn": "arn:aws:kms:eu-central-1:913378704801:key/81eb65d1-90dc-4df1-a8ca-6dde2bb109d3",
   "extractor_region": "ap-southeast-1",
+  "bounded_interval": {
+    "start_time_utc": "2023-11-03T00:00:00Z",
+    "end_time_utc_exclusive": "2026-02-01T00:00:00Z",
+    "start_block_number": 56112550,
+    "end_block_number_exclusive": 79746536,
+    "resolved_end_block_inclusive": 79746535,
+    "time_semantics": "half-open"
+  },
   "fullnode": {
     "event_service_framework_version": 2,
     "event_subscribe_version": 1,
-    "startSyncBlockNum": 54298720,
+    "startSyncBlockNum": 56112550,
     "native": {
       "useNativeQueue": false
     },
@@ -29,7 +37,7 @@
         "triggerName": "soliditylog",
         "enable": true,
         "topic": "soliditylog",
-        "redundancy": false
+        "redundancy": true
       }
     ],
     "filter": {
@@ -43,5 +51,5 @@
       ]
     }
   },
-  "end_block_policy": "bounded_at_run_start"
+  "end_block_policy": "half_open_utc_interval"
 }

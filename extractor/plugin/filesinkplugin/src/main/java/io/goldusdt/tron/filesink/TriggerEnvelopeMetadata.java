@@ -31,7 +31,7 @@ final class TriggerEnvelopeMetadata {
   static TriggerEnvelopeMetadata parse(ObjectMapper objectMapper, String payload, EventType fallbackType)
       throws IOException {
     JsonNode root = objectMapper.readTree(payload);
-    String triggerName = text(root, "triggerName", fallbackType.getTriggerName());
+    String triggerName = normalizeTriggerName(text(root, "triggerName", null), fallbackType);
     Long blockNumber = longValue(root.get("blockNumber"));
     String transactionId = text(root, "transactionId", null);
     String uniqueId = text(root, "uniqueId", null);
@@ -98,6 +98,21 @@ final class TriggerEnvelopeMetadata {
 
   private static String nullableToString(Object value) {
     return value == null ? "null" : String.valueOf(value);
+  }
+
+  private static String normalizeTriggerName(String rawTriggerName, EventType fallbackType) {
+    if (rawTriggerName == null || rawTriggerName.trim().isEmpty()) {
+      return fallbackType.getTriggerName();
+    }
+    if (fallbackType == EventType.SOLIDITY_LOG
+        && EventType.CONTRACT_LOG.getTriggerName().equals(rawTriggerName)) {
+      return fallbackType.getTriggerName();
+    }
+    if (fallbackType == EventType.SOLIDITY_EVENT
+        && EventType.CONTRACT_EVENT.getTriggerName().equals(rawTriggerName)) {
+      return fallbackType.getTriggerName();
+    }
+    return rawTriggerName;
   }
 
   private static String firstNonBlank(String... values) {

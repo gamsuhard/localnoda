@@ -70,6 +70,16 @@ The required execution artifacts before the first full bounded bulk are:
 - `BLOCK_09_CLOSURE_DECISION.md`
 - `REAL_CANARY_FINAL_SETTINGS_TASK.md`
 - `SINGAPORE_UPLOAD_STRESS_WAVE_SPEC.md`
+- `BLOCK_10_RUNTIME_FREEZE.md`
+- `BLOCK_10_OPERATOR_CHECKLIST.md`
+- `BLOCK_10_STOP_POLICY.md`
+- `BLOCK_10_APPROVAL_BUNDLE.md`
+
+Current truthful status:
+
+- loader/materialization path is ready for Block 10 execution
+- formal Block 09 closure is still pending source-side data availability
+- full bounded bulk remains blocked on manual approval
 
 ## Files to touch first in later blocks
 

@@ -11,7 +11,7 @@ Supersedes: v1 permanent historical source plan
 Deliver a **bounded one-off local historical USDT-on-TRON backfill** with the smallest stack that still makes engineering sense:
 
 - temporary FullNode
-- historical replay from `2023-09-01`
+- historical replay from `2023-11-03`
 - only USDT `Transfer`
 - raw file sink
 - ClickHouse canonical index
@@ -138,7 +138,7 @@ Bring up the temporary Linux extractor and boot `java-tron` from the official sn
 Resolve the exact bounded extraction window and freeze runtime parameters.
 
 ### Deliverables
-- exact start block for `2023-09-01 UTC`
+- exact start block for `2023-11-03 UTC`
 - optional exact end block if bounded by date instead of “to current approved tip”
 - frozen runtime config manifest
 - contract and topic filter manifest

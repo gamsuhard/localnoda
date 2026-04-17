@@ -5,10 +5,14 @@ set -euo pipefail
 : "${EXTRACTOR_ENV_FILE:=$WORKSPACE_ROOT/configs/extractor/extractor.env}"
 
 if [ -f "$EXTRACTOR_ENV_FILE" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "$EXTRACTOR_ENV_FILE"
-  set +a
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ''|'#'*) continue ;;
+    esac
+    key="${line%%=*}"
+    value="${line#*=}"
+    export "$key=$value"
+  done < "$EXTRACTOR_ENV_FILE"
 fi
 
 : "${RUN_STATE_DB:=$WORKSPACE_ROOT/runtime/run_state.sqlite}"
@@ -47,7 +51,8 @@ if [ -n "$S3_BUFFER_KMS_KEY_ARN" ]; then
   ARGS+=(--kms-key-arn "$S3_BUFFER_KMS_KEY_ARN")
 fi
 
-python3 "$WORKSPACE_ROOT/extractor/supervisor/10_upload_sealed_segments.py" "${ARGS[@]}"
+: "${EXTRACTOR_PYTHON_BIN:=python3}"
+"$EXTRACTOR_PYTHON_BIN" "$WORKSPACE_ROOT/extractor/supervisor/10_upload_sealed_segments.py" "${ARGS[@]}"
 
 VERIFY_ARGS=(
   --db-path "$RUN_STATE_DB"
@@ -61,4 +66,4 @@ if [ -n "$TRON_FILE_SINK_RUN_ID" ]; then
   VERIFY_ARGS+=(--run-id "$TRON_FILE_SINK_RUN_ID")
 fi
 
-python3 "$WORKSPACE_ROOT/extractor/supervisor/40_verify_uploaded_segments.py" "${VERIFY_ARGS[@]}"
+"$EXTRACTOR_PYTHON_BIN" "$WORKSPACE_ROOT/extractor/supervisor/40_verify_uploaded_segments.py" "${VERIFY_ARGS[@]}"

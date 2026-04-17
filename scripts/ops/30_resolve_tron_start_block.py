@@ -53,7 +53,7 @@ def parse_target_timestamp(value: str) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--target-timestamp", default="2023-09-01T00:00:00Z")
+    parser.add_argument("--target-timestamp", default="2023-11-03T00:00:00Z")
     parser.add_argument("--api-base", default=DEFAULT_API_BASE)
     parser.add_argument("--output", default="")
     args = parser.parse_args()

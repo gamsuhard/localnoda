@@ -3,8 +3,9 @@ param(
     [string]$Region = "ap-southeast-1",
     [string]$Profile = "ai-agents-dev",
     [Int64]$SnapshotTotalBytes = 3134113120450,
+    [Int64]$PauseThresholdBytes = 10GB,
     [double]$AssumedDownloadMiBPerSec = 16.5,
-    [int]$IntervalSeconds = 900,
+    [int]$IntervalSeconds = 120,
     [int]$MaxIterations = 0
 )
 
@@ -13,6 +14,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $runner = Join-Path $root "provision\50_ssm_run_script.py"
 $remoteScript = Join-Path $PSScriptRoot "10_remote_restore_status.sh"
+$remotePauseScript = Join-Path $PSScriptRoot "11_pause_restore.sh"
 $logDir = Join-Path $root "..\logs"
 $logDir = [System.IO.Path]::GetFullPath($logDir)
 $logPath = Join-Path $logDir "restore-watch.utf8.log"
@@ -104,6 +106,7 @@ while ($true) {
             }
 
             $bytesLine = $output | Where-Object { $_ -match '^output_dir_bytes=\d+$' } | Select-Object -Last 1
+            $availBytesLine = $output | Where-Object { $_ -match '^tron_data_avail_bytes=\d+$' } | Select-Object -Last 1
             $remoteTsLine = $output | Where-Object { $_ -match '^ts=' } | Select-Object -Last 1
             $restoreStartLine = $output | Where-Object { $_ -match '^\d{4}-\d{2}-\d{2}T.* restore_start$' } | Select-Object -Last 1
             if ($bytesLine) {
@@ -123,6 +126,34 @@ while ($true) {
                 $prevTime = Get-Date
             } else {
                 $alert = "ALERT output_dir_bytes_missing"
+                Write-Log $alert
+            }
+
+            if ($availBytesLine) {
+                $availBytes = [int64](($availBytesLine -split '=', 2)[1])
+                Write-Log ("pause_threshold_bytes={0} ({1})" -f $PauseThresholdBytes, (Format-Bytes $PauseThresholdBytes))
+                Write-Log ("tron_data_avail_bytes={0} ({1})" -f $availBytes, (Format-Bytes $availBytes))
+                if ($availBytes -le $PauseThresholdBytes -and ($output -match '^restore_process_alive=true$')) {
+                    $alert = "ALERT free_space_below_pause_threshold"
+                    Write-Log $alert
+                    try {
+                        $pauseOutput = & python $runner `
+                            --instance-id $InstanceId `
+                            --region $Region `
+                            --profile $Profile `
+                            --comment "manual-restore-pause-low-disk" `
+                            --timeout-seconds 180 `
+                            --script $remotePauseScript 2>&1
+                        foreach ($line in $pauseOutput) {
+                            Write-Log $line
+                        }
+                    } catch {
+                        $alert = "ALERT restore_pause_failed=$_"
+                        Write-Log $alert
+                    }
+                }
+            } else {
+                $alert = "ALERT tron_data_avail_bytes_missing"
                 Write-Log $alert
             }
 

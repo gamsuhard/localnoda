@@ -14,7 +14,7 @@ This project is now frozen as a **bounded one-off historical extraction contour*
 
 - temporary TRON FullNode from official snapshot
 - historical replay for **USDT on TRON only**
-- bounded backfill starting from **2023-09-01**
+- bounded backfill over **[2023-11-03T00:00:00Z, 2026-02-01T00:00:00Z)**
 - export into our own index
 - serve queries from our own index
 - **stop and remove the FullNode after successful extraction**
@@ -160,7 +160,7 @@ The FullNode must be initialized from the official **RocksDB FullNode snapshot**
 Use Event Service Framework V2 with:
 
 - `event.subscribe.version = 1`
-- `startSyncBlockNum = <resolved block height for 2023-09-01 UTC>`
+- `startSyncBlockNum = <resolved block height for 2023-11-03 UTC>`
 
 The exact block number is **not** hardcoded in architecture.
 It must be resolved and recorded during Block 01/02.
@@ -401,7 +401,7 @@ This avoids buying final storage based on guesswork.
 - place code/config/scripts locally
 - bootstrap FullNode from snapshot
 - verify node health
-- resolve exact start block for `2023-09-01 UTC`
+- resolve exact start block for `2023-11-03 UTC`
 
 ## During extraction
 

@@ -22,7 +22,7 @@ This canary exists to prove that the final chosen settings are valid on real dat
 
 ### Start boundary
 
-- start UTC: `2023-09-01T00:00:00Z`
+- start UTC: `2023-11-03T00:00:00Z`
 
 ### End policy
 

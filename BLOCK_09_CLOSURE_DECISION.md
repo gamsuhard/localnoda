@@ -48,9 +48,9 @@ Run one representative-month-like bounded execution before Block 10 approval.
 
 ### Window
 
-- start UTC: `2023-09-01T00:00:00Z`
-- end UTC: `2023-10-01T00:00:00Z`
-- time semantics: half-open interval `[2023-09-01T00:00:00Z, 2023-10-01T00:00:00Z)`
+- start UTC: `2023-11-03T00:00:00Z`
+- end UTC: `2023-12-03T00:00:00Z`
+- time semantics: half-open interval `[2023-11-03T00:00:00Z, 2023-12-03T00:00:00Z)`
 
 ### Frozen runtime assumptions
 
@@ -64,8 +64,8 @@ Run one representative-month-like bounded execution before Block 10 approval.
 ### Exact inputs
 
 - current approved exact-tree workspace artifact
-- frozen TRON start boundary for `2023-09-01T00:00:00Z`
-- bounded extractor end boundary resolved for `2023-10-01T00:00:00Z`
+- frozen TRON start boundary for `2023-11-03T00:00:00Z`
+- bounded extractor end boundary resolved for `2023-12-03T00:00:00Z`
 - current stage raw bucket / prefix discipline
 - current private ClickHouse stage endpoint
 
