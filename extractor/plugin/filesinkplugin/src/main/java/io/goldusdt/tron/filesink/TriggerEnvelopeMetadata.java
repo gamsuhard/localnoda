@@ -1,6 +1,7 @@
 package io.goldusdt.tron.filesink;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 
@@ -30,12 +31,43 @@ final class TriggerEnvelopeMetadata {
 
   static TriggerEnvelopeMetadata parse(ObjectMapper objectMapper, String payload, EventType fallbackType)
       throws IOException {
-    JsonNode root = objectMapper.readTree(payload);
-    String triggerName = normalizeTriggerName(text(root, "triggerName", null), fallbackType);
-    Long blockNumber = longValue(root.get("blockNumber"));
-    String transactionId = text(root, "transactionId", null);
-    String uniqueId = text(root, "uniqueId", null);
-    Long timeStamp = longValue(root.get("timeStamp"));
+    String triggerName = null;
+    Long blockNumber = null;
+    String transactionId = null;
+    String uniqueId = null;
+    Long timeStamp = null;
+
+    try (JsonParser parser = objectMapper.getFactory().createParser(payload)) {
+      if (parser.nextToken() != JsonToken.START_OBJECT) {
+        throw new IOException("Trigger payload must be a JSON object");
+      }
+      while (parser.nextToken() != JsonToken.END_OBJECT) {
+        String fieldName = parser.currentName();
+        if (fieldName == null) {
+          parser.skipChildren();
+          continue;
+        }
+        JsonToken valueToken = parser.nextToken();
+        if (valueToken == null) {
+          break;
+        }
+        if ("triggerName".equals(fieldName)) {
+          triggerName = textValue(parser);
+        } else if ("blockNumber".equals(fieldName)) {
+          blockNumber = longValue(parser);
+        } else if ("transactionId".equals(fieldName)) {
+          transactionId = textValue(parser);
+        } else if ("uniqueId".equals(fieldName)) {
+          uniqueId = textValue(parser);
+        } else if ("timeStamp".equals(fieldName)) {
+          timeStamp = longValue(parser);
+        } else {
+          parser.skipChildren();
+        }
+      }
+    }
+
+    triggerName = normalizeTriggerName(triggerName, fallbackType);
 
     String eventKey = firstNonBlank(
         uniqueId,
@@ -69,23 +101,23 @@ final class TriggerEnvelopeMetadata {
     return timeStamp;
   }
 
-  private static String text(JsonNode root, String fieldName, String fallback) {
-    JsonNode node = root.get(fieldName);
-    if (node == null || node.isNull()) {
-      return fallback;
-    }
-    String value = node.asText();
-    return value == null || value.trim().isEmpty() ? fallback : value;
-  }
-
-  private static Long longValue(JsonNode node) {
-    if (node == null || node.isNull()) {
+  private static String textValue(JsonParser parser) throws IOException {
+    if (parser.currentToken() == JsonToken.VALUE_NULL) {
       return null;
     }
-    if (node.canConvertToLong()) {
-      return node.asLong();
+    String value = parser.getValueAsString();
+    return value == null || value.trim().isEmpty() ? null : value;
+  }
+
+  private static Long longValue(JsonParser parser) throws IOException {
+    JsonToken token = parser.currentToken();
+    if (token == null || token == JsonToken.VALUE_NULL) {
+      return null;
     }
-    String text = node.asText();
+    if (token == JsonToken.VALUE_NUMBER_INT || token == JsonToken.VALUE_NUMBER_FLOAT) {
+      return parser.getLongValue();
+    }
+    String text = parser.getValueAsString();
     if (text == null || text.trim().isEmpty()) {
       return null;
     }
