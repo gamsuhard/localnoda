@@ -79,19 +79,25 @@ EOF
 
 if systemctl list-unit-files | grep -q '^local-tron-incremental-loader\.timer'; then
   systemctl disable --now local-tron-incremental-loader.timer || true
+  systemctl reset-failed local-tron-incremental-loader.timer || true
 fi
 if systemctl list-unit-files | grep -q '^local-tron-incremental-loader\.service'; then
   systemctl stop local-tron-incremental-loader.service || true
+  systemctl reset-failed local-tron-incremental-loader.service || true
 fi
 
 systemctl daemon-reload
 
 for slot in 1 2; do
   if [ "$slot" -le "$LOADER_CONCURRENCY" ]; then
+    systemctl reset-failed "local-tron-incremental-loader@${slot}.service" || true
+    systemctl reset-failed "local-tron-incremental-loader@${slot}.timer" || true
     systemctl enable --now "local-tron-incremental-loader@${slot}.timer"
     systemctl --no-pager --full status "local-tron-incremental-loader@${slot}.timer" || true
   else
     systemctl disable --now "local-tron-incremental-loader@${slot}.timer" || true
     systemctl stop "local-tron-incremental-loader@${slot}.service" || true
+    systemctl reset-failed "local-tron-incremental-loader@${slot}.timer" || true
+    systemctl reset-failed "local-tron-incremental-loader@${slot}.service" || true
   fi
 done
