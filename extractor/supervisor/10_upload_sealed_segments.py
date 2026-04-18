@@ -170,7 +170,7 @@ def write_runtime_manifest(
             plugin_build_id, existing_payload.get("plugin_build_id"), "plugin_build_id"
         ),
         "sink_codec": existing_payload.get("sink_codec", "ndjson.gz"),
-        "segment_target_bytes": int(existing_payload.get("segment_target_bytes", 268435456)),
+        "segment_target_bytes": int(existing_payload.get("segment_target_bytes", 536870912)),
         "s3_bucket": bucket,
         "s3_prefix_root": normalize_prefix(prefix_root),
         "extractor_region": resolve_required_manifest_value(

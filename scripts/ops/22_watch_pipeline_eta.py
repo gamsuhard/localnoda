@@ -135,9 +135,16 @@ sealed_count = len(list(segments_dir.glob("*.ndjson.gz")))
 partial_count = len(list(segments_dir.glob("*.partial")))
 orphaned_partial_count = len(list(segments_dir.glob("*.partial.orphaned.*")))
 latest_manifest = None
+max_manifest = None
 manifest_paths = sorted((run_root / "manifests").glob("*.manifest.json")) if run_root else []
-if manifest_paths:
-    latest_manifest = json.loads(manifest_paths[-1].read_text(encoding="utf-8"))
+for path in manifest_paths:
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    latest_manifest = manifest
+    block_to = manifest.get("block_to")
+    if block_to is None:
+        continue
+    if max_manifest is None or block_to > max_manifest.get("block_to", -1):
+        max_manifest = manifest
 
 nodeinfo = None
 nodeinfo_path = Path("/tmp/tron-nodeinfo.json")
@@ -161,6 +168,8 @@ payload.update(
         "latest_sealed_block_to": latest_manifest.get("block_to") if latest_manifest else None,
         "latest_sealed_record_count": latest_manifest.get("record_count") if latest_manifest else None,
         "latest_sealed_file_size_bytes": latest_manifest.get("file_size_bytes") if latest_manifest else None,
+        "max_sealed_segment_id": max_manifest.get("segment_id") if max_manifest else None,
+        "max_sealed_block_to": max_manifest.get("block_to") if max_manifest else None,
         "last_uploaded_segment_id": checkpoint.get("last_uploaded_segment_id"),
         "last_uploaded_block_number": checkpoint.get("last_uploaded_block_number"),
         "next_start_block_number": checkpoint.get("next_start_block_number"),
@@ -308,8 +317,8 @@ def derive(prev_sample: dict, current_sample: dict) -> dict:
     s3_delta = (s3_cur.get("s3_segments") or 0) - (s3_prev.get("s3_segments") or 0)
     ch_seg_delta = (frankfurt_cur.get("clickhouse_segments") or 0) - (frankfurt_prev.get("clickhouse_segments") or 0)
     ch_events_delta = (frankfurt_cur.get("clickhouse_events") or 0) - (frankfurt_prev.get("clickhouse_events") or 0)
-    sealed_block_delta = (singapore_cur.get("latest_sealed_block_to") or 0) - (
-        singapore_prev.get("latest_sealed_block_to") or 0
+    sealed_block_delta = (singapore_cur.get("max_sealed_block_to") or 0) - (
+        singapore_prev.get("max_sealed_block_to") or 0
     )
     uploaded_block_delta = (singapore_cur.get("last_uploaded_block_number") or 0) - (
         singapore_prev.get("last_uploaded_block_number") or 0
@@ -324,7 +333,7 @@ def derive(prev_sample: dict, current_sample: dict) -> dict:
 
     start_block = singapore_cur.get("start_block")
     resolved_end_block = singapore_cur.get("resolved_end_block")
-    sealed_block = singapore_cur.get("latest_sealed_block_to")
+    sealed_block = singapore_cur.get("max_sealed_block_to")
     backlog_raw_to_s3 = max(0, (singapore_cur.get("sealed_segments") or 0) - (s3_cur.get("s3_segments") or 0))
     backlog_s3_to_loader = max(0, (s3_cur.get("s3_segments") or 0) - (frankfurt_cur.get("clickhouse_segments") or 0))
 
