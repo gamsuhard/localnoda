@@ -100,7 +100,15 @@ class FakeClickHouseTarget:
         self.staging_events.extend(event_rows)
         self.staging_legs.extend(leg_rows or [])
 
-    def merge_segment(self, run_id: str, segment_id: str) -> dict[str, int]:
+    def merge_segment(
+        self,
+        run_id: str,
+        segment_id: str,
+        *,
+        expected_event_rows: int | None = None,
+        expected_leg_rows: int | None = None,
+        skip_canonical_counts: bool = False,
+    ) -> dict[str, int]:
         events_inserted = 0
         legs_inserted = 0
         for row in self.staging_events:

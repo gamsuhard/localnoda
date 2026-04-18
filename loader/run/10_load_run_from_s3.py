@@ -34,6 +34,7 @@ CLICKHOUSE_DATABASE = os.environ.get("CLICKHOUSE_DATABASE", "tron_usdt_local")
 LOADER_CONCURRENCY = int(os.environ.get("LOADER_CONCURRENCY", "1"))
 LOADER_RECORD_BATCH_SIZE = int(os.environ.get("LOADER_RECORD_BATCH_SIZE", "250000"))
 LOADER_BUILD_LEGS_IN_HOT_PATH = os.environ.get("LOADER_BUILD_LEGS_IN_HOT_PATH", "0") == "1"
+LOADER_SKIP_PER_SEGMENT_CANONICAL_COUNTS = os.environ.get("LOADER_SKIP_PER_SEGMENT_CANONICAL_COUNTS", "1") == "1"
 RUNTIME_LOCK_NAME = f"{CLICKHOUSE_DATABASE}:single-worker"
 
 EVENTS_STAGE_TABLE = f"{CLICKHOUSE_DATABASE}.trc20_transfer_events_staging"
@@ -358,10 +359,21 @@ class ClickHouseCliTarget:
         if leg_rows:
             self.insert_json_rows(LEGS_STAGE_TABLE, leg_rows, step=f"insert_legs_stage_batch_{batch_index:05d}")
 
-    def merge_segment(self, run_id: str, segment_id: str) -> dict[str, int]:
+    def merge_segment(
+        self,
+        run_id: str,
+        segment_id: str,
+        *,
+        expected_event_rows: int | None = None,
+        expected_leg_rows: int | None = None,
+        skip_canonical_counts: bool = False,
+    ) -> dict[str, int]:
         where_clause = f"load_run_id = {sql_quote(run_id)} AND source_segment_id = {sql_quote(segment_id)}"
-        before_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_before_events")
-        before_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_before_legs") if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
+        before_events = 0
+        before_legs = 0
+        if not skip_canonical_counts:
+            before_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_before_events")
+            before_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_before_legs") if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
         self._run_query(
             f"""
             INSERT INTO {EVENTS_TABLE}
@@ -389,8 +401,12 @@ class ClickHouseCliTarget:
                 """,
                 step="merge_legs",
             )
-        after_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_after_events")
-        after_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_after_legs") if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
+        if skip_canonical_counts:
+            after_events = int(expected_event_rows or 0)
+            after_legs = int(expected_leg_rows or 0) if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
+        else:
+            after_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_after_events")
+            after_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_after_legs") if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
         self.reset_stage_tables()
         return {
             "events_inserted": after_events - before_events,
@@ -580,10 +596,21 @@ class ClickHouseNativeTarget:
                 step=f"insert_legs_stage_batch_{batch_index:05d}",
             )
 
-    def merge_segment(self, run_id: str, segment_id: str) -> dict[str, int]:
+    def merge_segment(
+        self,
+        run_id: str,
+        segment_id: str,
+        *,
+        expected_event_rows: int | None = None,
+        expected_leg_rows: int | None = None,
+        skip_canonical_counts: bool = False,
+    ) -> dict[str, int]:
         where_clause = f"load_run_id = {sql_quote(run_id)} AND source_segment_id = {sql_quote(segment_id)}"
-        before_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_before_events")
-        before_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_before_legs") if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
+        before_events = 0
+        before_legs = 0
+        if not skip_canonical_counts:
+            before_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_before_events")
+            before_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_before_legs") if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
         self._run_query(
             f"""
             INSERT INTO {EVENTS_TABLE}
@@ -611,8 +638,12 @@ class ClickHouseNativeTarget:
                 """,
                 step="merge_legs",
             )
-        after_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_after_events")
-        after_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_after_legs") if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
+        if skip_canonical_counts:
+            after_events = int(expected_event_rows or 0)
+            after_legs = int(expected_leg_rows or 0) if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
+        else:
+            after_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_after_events")
+            after_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_after_legs") if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
         self.reset_stage_tables()
         return {
             "events_inserted": after_events - before_events,
@@ -959,6 +990,7 @@ def build_audit_rows(
     finished_at = utc_now_iso()
     audit_note = dict(metrics.as_dict())
     audit_note["legs_deferred"] = not LOADER_BUILD_LEGS_IN_HOT_PATH
+    audit_note["per_segment_canonical_counts_skipped"] = LOADER_SKIP_PER_SEGMENT_CANONICAL_COUNTS
     note = json.dumps(audit_note, separators=(",", ":"))
     rows = [
         {
@@ -1144,8 +1176,15 @@ def load_run_from_s3(
                             f"expected {segment_manifest['record_count']} got {metrics.record_count}"
                         )
 
+                    skip_segment_canonical_counts = LOADER_SKIP_PER_SEGMENT_CANONICAL_COUNTS and not force_replay
                     merge_started = time.perf_counter()
-                    merge_counts = target.merge_segment(run_id, segment_manifest["segment_id"])
+                    merge_counts = target.merge_segment(
+                        run_id,
+                        segment_manifest["segment_id"],
+                        expected_event_rows=metrics.event_rows_expected,
+                        expected_leg_rows=metrics.leg_rows_expected,
+                        skip_canonical_counts=skip_segment_canonical_counts,
+                    )
                     metrics.merge_ms = elapsed_ms(merge_started)
 
                     audit_started = time.perf_counter()
@@ -1154,9 +1193,13 @@ def load_run_from_s3(
 
                     mark_segment_after_merge(connection, run_id, segment_manifest, metrics)
 
-                    validation_started = time.perf_counter()
-                    segment_status, error_text = validate_segment_counts(target, run_id, segment_manifest, metrics)
-                    metrics.validation_ms = elapsed_ms(validation_started)
+                    if skip_segment_canonical_counts:
+                        segment_status, error_text = "validated", None
+                        metrics.validation_ms = 0
+                    else:
+                        validation_started = time.perf_counter()
+                        segment_status, error_text = validate_segment_counts(target, run_id, segment_manifest, metrics)
+                        metrics.validation_ms = elapsed_ms(validation_started)
                     mark_segment_validated(connection, run_id, segment_manifest, segment_status, metrics, error_text)
                     connection.commit()
 
