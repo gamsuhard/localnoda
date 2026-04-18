@@ -25,7 +25,7 @@ This means:
 
 ### Extractor / segment target
 
-- `TRON_FILE_SINK_SEGMENT_MAX_RECORDS=250000`
+- `TRON_FILE_SINK_SEGMENT_MAX_RECORDS=500000`
 - `TRON_FILE_SINK_SEGMENT_MAX_BYTES=536870912`
 - extractor -> S3 -> loader -> private ClickHouse contour only
 
