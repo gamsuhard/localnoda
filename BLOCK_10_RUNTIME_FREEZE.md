@@ -27,6 +27,7 @@ This means:
 
 - `TRON_FILE_SINK_SEGMENT_MAX_RECORDS=500000`
 - `TRON_FILE_SINK_SEGMENT_MAX_BYTES=671088640`
+- `TRON_FILE_SINK_FLUSH_EVERY_RECORDS=5000`
 - extractor -> S3 -> loader -> private ClickHouse contour only
 
 ### Extractor upload mode
