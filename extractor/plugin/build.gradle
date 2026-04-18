@@ -24,6 +24,8 @@ subprojects {
         annotationProcessor "org.pf4j:pf4j:${pf4jVersion}"
         compileOnly "org.slf4j:slf4j-api:${slf4jVersion}"
         testImplementation 'junit:junit:4.13.2'
+        testImplementation "org.slf4j:slf4j-api:${slf4jVersion}"
+        testRuntimeOnly "org.slf4j:slf4j-simple:${slf4jVersion}"
     }
 
     tasks.withType(JavaCompile).configureEach {

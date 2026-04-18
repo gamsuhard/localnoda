@@ -20,6 +20,8 @@ final class FileSinkConfig {
   private final long segmentMaxBytes;
   private final int segmentMaxRecords;
   private final int flushEveryRecords;
+  private final int gzipLevel;
+  private final int gzipBufferBytes;
   private final int maxQueueRecords;
   private final String s3Bucket;
   private final String s3PrefixRoot;
@@ -39,6 +41,8 @@ final class FileSinkConfig {
       long segmentMaxBytes,
       int segmentMaxRecords,
       int flushEveryRecords,
+      int gzipLevel,
+      int gzipBufferBytes,
       int maxQueueRecords,
       String s3Bucket,
       String s3PrefixRoot,
@@ -58,6 +62,8 @@ final class FileSinkConfig {
     this.segmentMaxBytes = segmentMaxBytes;
     this.segmentMaxRecords = segmentMaxRecords;
     this.flushEveryRecords = flushEveryRecords;
+    this.gzipLevel = gzipLevel;
+    this.gzipBufferBytes = gzipBufferBytes;
     this.maxQueueRecords = maxQueueRecords;
     this.s3Bucket = s3Bucket;
     this.s3PrefixRoot = s3PrefixRoot;
@@ -97,6 +103,8 @@ final class FileSinkConfig {
         parsePositiveLong(requiredEnv("SEGMENT_MAX_BYTES"), "SEGMENT_MAX_BYTES"),
         parsePositiveInt(requiredEnv("SEGMENT_MAX_RECORDS"), "SEGMENT_MAX_RECORDS"),
         parsePositiveInt(requiredEnv("FLUSH_EVERY_RECORDS"), "FLUSH_EVERY_RECORDS"),
+        parseOptionalGzipLevel(env("GZIP_LEVEL")),
+        parseOptionalGzipBufferBytes(env("GZIP_BUFFER_BYTES")),
         parsePositiveInt(requiredEnv("MAX_QUEUE_RECORDS"), "MAX_QUEUE_RECORDS"),
         requiredEnv("S3_BUCKET"),
         normalizePrefix(requiredEnv("S3_PREFIX_ROOT")),
@@ -163,6 +171,14 @@ final class FileSinkConfig {
 
   int getFlushEveryRecords() {
     return flushEveryRecords;
+  }
+
+  int getGzipLevel() {
+    return gzipLevel;
+  }
+
+  int getGzipBufferBytes() {
+    return gzipBufferBytes;
   }
 
   int getMaxQueueRecords() {
@@ -253,6 +269,28 @@ final class FileSinkConfig {
     } catch (NumberFormatException e) {
       throw new IllegalStateException("TRON_FILE_SINK_" + fieldName + " must be a positive integer", e);
     }
+  }
+
+  static int parseOptionalGzipLevel(String raw) {
+    if (raw == null) {
+      return 1;
+    }
+    try {
+      int parsed = Integer.parseInt(raw);
+      if (parsed < 1 || parsed > 9) {
+        throw new NumberFormatException("must be between 1 and 9");
+      }
+      return parsed;
+    } catch (NumberFormatException e) {
+      throw new IllegalStateException("TRON_FILE_SINK_GZIP_LEVEL must be an integer between 1 and 9", e);
+    }
+  }
+
+  static int parseOptionalGzipBufferBytes(String raw) {
+    if (raw == null) {
+      return 65536;
+    }
+    return parsePositiveInt(raw, "GZIP_BUFFER_BYTES");
   }
 
   private static String parseCompression(String value) {

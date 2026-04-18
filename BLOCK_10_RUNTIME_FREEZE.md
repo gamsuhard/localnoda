@@ -25,9 +25,11 @@ This means:
 
 ### Extractor / segment target
 
-- `TRON_FILE_SINK_SEGMENT_MAX_RECORDS=500000`
-- `TRON_FILE_SINK_SEGMENT_MAX_BYTES=671088640`
+- `TRON_FILE_SINK_SEGMENT_MAX_RECORDS=750000`
+- `TRON_FILE_SINK_SEGMENT_MAX_BYTES=805306368`
 - `TRON_FILE_SINK_FLUSH_EVERY_RECORDS=5000`
+- `TRON_FILE_SINK_GZIP_LEVEL=1`
+- `TRON_FILE_SINK_GZIP_BUFFER_BYTES=65536`
 - extractor -> S3 -> loader -> private ClickHouse contour only
 
 ### Extractor upload mode
@@ -55,7 +57,7 @@ runtime default until the code and evidence are pushed and reviewed.
 
 - latest public loader stress recommendation remains the basis for the current contour, but live runtime has since been tuned upward under operator supervision:
   - `LOADER_RECORD_BATCH_SIZE=350000`
-  - `records/segment target=500000`
+  - `records/segment target=750000`
 - current live contour keeps:
   - deferred legs in hot path disabled
   - per-segment canonical recounts skipped on initial pass

@@ -9,12 +9,13 @@ Status: pre-start checklist for the first bounded bulk
 2. Confirm at least one real source-side bounded run is available for the Block 09 closure step.
 3. Confirm exact-tree artifact sha256 matches the frozen approval package.
 4. Confirm the deployed workspace on active hosts matches the same artifact sha256.
-5. Confirm `LOADER_CONCURRENCY=1`.
-6. Confirm `LOADER_RECORD_BATCH_SIZE=25000`.
-7. Confirm `TRON_FILE_SINK_SEGMENT_MAX_RECORDS=250000`.
-8. Confirm `CLICKHOUSE_DATABASE` is an explicit non-disposable target schema for Block 10.
-9. Confirm `LOADER_PYTHON_BIN` points to the pinned loader venv.
-10. Confirm private ClickHouse probe succeeds from the Frankfurt loader host.
+5. Confirm `LOADER_CONCURRENCY=2`.
+6. Confirm `LOADER_RECORD_BATCH_SIZE=350000`.
+7. Confirm `TRON_FILE_SINK_SEGMENT_MAX_RECORDS=750000`.
+8. Confirm `TRON_FILE_SINK_SEGMENT_MAX_BYTES=805306368`, `TRON_FILE_SINK_FLUSH_EVERY_RECORDS=5000`, and fast-gzip knobs (`TRON_FILE_SINK_GZIP_LEVEL=1`, `TRON_FILE_SINK_GZIP_BUFFER_BYTES=65536`).
+9. Confirm `CLICKHOUSE_DATABASE` is an explicit non-disposable target schema for Block 10.
+10. Confirm `LOADER_PYTHON_BIN` points to the pinned loader venv.
+11. Confirm private ClickHouse probe succeeds from the Frankfurt loader host.
 
 ## Extractor-side checks
 

@@ -17,7 +17,6 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.zip.GZIPOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,12 +51,14 @@ final class SegmentedNdjsonWriter implements AutoCloseable {
       currentSegment = openSegment(eventType);
     }
 
-    if (currentSegment.shouldRotateBeforeWrite(payload)) {
+    byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
+
+    if (currentSegment.shouldRotateBeforeWrite(payloadBytes.length)) {
       closeCurrentSegment();
       currentSegment = openSegment(eventType);
     }
 
-    currentSegment.write(payload, metadata);
+    currentSegment.write(payload, payloadBytes.length, metadata);
 
     if (currentSegment.shouldRotateAfterWrite()) {
       closeCurrentSegment();
@@ -210,15 +211,18 @@ final class SegmentedNdjsonWriter implements AutoCloseable {
           Files.newOutputStream(partialPath, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
       DigestOutputStream digestOutputStream = new DigestOutputStream(fileOutputStream, digest);
       OutputStream contentStream =
-          config.isGzipEnabled() ? new GZIPOutputStream(digestOutputStream, 8192) : digestOutputStream;
+          config.isGzipEnabled()
+              ? new TunedGzipOutputStream(
+                  digestOutputStream, config.getGzipBufferBytes(), config.getGzipLevel())
+              : digestOutputStream;
       this.writer = new BufferedWriter(new OutputStreamWriter(contentStream, StandardCharsets.UTF_8));
     }
 
-    boolean shouldRotateBeforeWrite(String payload) {
+    boolean shouldRotateBeforeWrite(int payloadLengthBytes) {
       if (recordCount == 0) {
         return false;
       }
-      long predictedBytes = approximateBytes + payload.getBytes(StandardCharsets.UTF_8).length + 1L;
+      long predictedBytes = approximateBytes + payloadLengthBytes + 1L;
       return predictedBytes > config.getSegmentMaxBytes();
     }
 
@@ -226,10 +230,10 @@ final class SegmentedNdjsonWriter implements AutoCloseable {
       return recordCount >= config.getSegmentMaxRecords();
     }
 
-    void write(String payload, TriggerEnvelopeMetadata metadata) throws IOException {
+    void write(String payload, int payloadLengthBytes, TriggerEnvelopeMetadata metadata) throws IOException {
       writer.write(payload);
       writer.newLine();
-      approximateBytes += payload.getBytes(StandardCharsets.UTF_8).length + 1L;
+      approximateBytes += payloadLengthBytes + 1L;
       recordCount += 1;
 
       if (recordCount % config.getFlushEveryRecords() == 0) {

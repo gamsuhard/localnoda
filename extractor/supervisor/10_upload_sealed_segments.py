@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -38,6 +39,28 @@ def utc_now_iso() -> str:
 
 def normalize_prefix(prefix_root: str) -> str:
     return prefix_root.rstrip("/")
+
+
+def env_or_existing_text(name: str, existing_value: Any, default_value: str) -> str:
+    value = os.getenv(name)
+    if value not in (None, ""):
+        return str(value)
+    if existing_value not in (None, ""):
+        return str(existing_value)
+    return default_value
+
+
+def env_or_existing_int(name: str, existing_value: Any, default_value: int) -> int:
+    value = os.getenv(name)
+    if value not in (None, ""):
+        return int(value)
+    if existing_value not in (None, ""):
+        return int(existing_value)
+    return default_value
+
+
+def codec_name_for_compression(compression: str) -> str:
+    return "ndjson.gz" if compression == "gzip" else "ndjson"
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -154,6 +177,9 @@ def write_runtime_manifest(
 ) -> Path:
     runtime_manifest_path = run_root / RUNTIME_MANIFEST_RELATIVE_PATH
     existing_payload = load_json(runtime_manifest_path) if runtime_manifest_path.exists() else {}
+    compression = env_or_existing_text(
+        "TRON_FILE_SINK_COMPRESSION", existing_payload.get("compression"), "gzip"
+    )
     payload = {
         "manifest_version": 1,
         "kind": "runtime_manifest",
@@ -169,8 +195,23 @@ def write_runtime_manifest(
         "plugin_build_id": resolve_required_manifest_value(
             plugin_build_id, existing_payload.get("plugin_build_id"), "plugin_build_id"
         ),
-        "sink_codec": existing_payload.get("sink_codec", "ndjson.gz"),
-        "segment_target_bytes": int(existing_payload.get("segment_target_bytes", 671088640)),
+        "sink_codec": codec_name_for_compression(compression),
+        "segment_target_bytes": env_or_existing_int(
+            "TRON_FILE_SINK_SEGMENT_MAX_BYTES", existing_payload.get("segment_target_bytes"), 805306368
+        ),
+        "segment_target_records": env_or_existing_int(
+            "TRON_FILE_SINK_SEGMENT_MAX_RECORDS", existing_payload.get("segment_target_records"), 750000
+        ),
+        "flush_every_records": env_or_existing_int(
+            "TRON_FILE_SINK_FLUSH_EVERY_RECORDS", existing_payload.get("flush_every_records"), 5000
+        ),
+        "compression": compression,
+        "gzip_level": env_or_existing_int(
+            "TRON_FILE_SINK_GZIP_LEVEL", existing_payload.get("gzip_level"), 1
+        ),
+        "gzip_buffer_bytes": env_or_existing_int(
+            "TRON_FILE_SINK_GZIP_BUFFER_BYTES", existing_payload.get("gzip_buffer_bytes"), 65536
+        ),
         "s3_bucket": bucket,
         "s3_prefix_root": normalize_prefix(prefix_root),
         "extractor_region": resolve_required_manifest_value(
