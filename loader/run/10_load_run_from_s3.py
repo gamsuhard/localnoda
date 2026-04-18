@@ -36,6 +36,11 @@ LOADER_WORKER_SLOT = int(os.environ.get("LOADER_WORKER_SLOT", "1"))
 LOADER_RECORD_BATCH_SIZE = int(os.environ.get("LOADER_RECORD_BATCH_SIZE", "250000"))
 LOADER_BUILD_LEGS_IN_HOT_PATH = os.environ.get("LOADER_BUILD_LEGS_IN_HOT_PATH", "0") == "1"
 LOADER_SKIP_PER_SEGMENT_CANONICAL_COUNTS = os.environ.get("LOADER_SKIP_PER_SEGMENT_CANONICAL_COUNTS", "1") == "1"
+LOADER_SEGMENT_STALE_SECONDS = int(os.environ.get("LOADER_SEGMENT_STALE_SECONDS", "1800"))
+LOADER_RUNTIME_LOCK_STALE_SECONDS = int(os.environ.get("LOADER_RUNTIME_LOCK_STALE_SECONDS", "1800"))
+LOADER_FAILED_RETRY_BACKOFF_SECONDS = int(os.environ.get("LOADER_FAILED_RETRY_BACKOFF_SECONDS", "120"))
+LOADER_MAX_ATTEMPTS = int(os.environ.get("LOADER_MAX_ATTEMPTS", "5"))
+LOADER_SQLITE_BUSY_TIMEOUT_MS = int(os.environ.get("LOADER_SQLITE_BUSY_TIMEOUT_MS", "30000"))
 RUNTIME_LOCK_NAME = (
     f"{CLICKHOUSE_DATABASE}:single-worker"
     if LOADER_CONCURRENCY == 1
@@ -49,7 +54,6 @@ LEGS_TABLE = f"{CLICKHOUSE_DATABASE}.address_transfer_legs"
 AUDIT_TABLE = f"{CLICKHOUSE_DATABASE}.load_audit"
 
 SEGMENT_TERMINAL_STATUSES = {"validated", "failed", "quarantined", "skipped"}
-CLAIMABLE_SEGMENT_STATUSES = ("pending", "failed")
 
 EVENT_INSERT_COLUMNS = (
     "chain",
@@ -147,6 +151,34 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def parse_utc_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                parsed = datetime.strptime(value, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            raise
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def timestamp_age_exceeds(value: str | None, max_age_seconds: int, now: datetime | None = None) -> bool:
+    parsed = parse_utc_timestamp(value)
+    if parsed is None:
+        return False
+    reference = now or datetime.now(timezone.utc)
+    return (reference - parsed).total_seconds() >= max_age_seconds
+
+
 def elapsed_ms(started_at: float) -> int:
     return int((time.perf_counter() - started_at) * 1000)
 
@@ -169,6 +201,19 @@ def sha256_file(path: Path) -> str:
 
 def ensure_loader_state_schema(connection: sqlite3.Connection, schema_path: Path) -> None:
     connection.executescript(schema_path.read_text(encoding="utf-8"))
+
+
+def configure_loader_connection(connection: sqlite3.Connection) -> None:
+    connection.execute(f"PRAGMA busy_timeout = {LOADER_SQLITE_BUSY_TIMEOUT_MS}")
+    connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute("PRAGMA synchronous = NORMAL")
+    connection.execute("PRAGMA foreign_keys = ON")
+
+
+def open_loader_connection(loader_db_path: Path) -> sqlite3.Connection:
+    return_connection = sqlite3.connect(loader_db_path, timeout=max(1, LOADER_SQLITE_BUSY_TIMEOUT_MS) / 1000)
+    configure_loader_connection(return_connection)
+    return return_connection
 
 
 def current_process_peak_rss_kb() -> int:
@@ -207,6 +252,15 @@ def owner_pid_from_lock_owner(owner_id: str) -> int | None:
     legacy_candidate = owner_id.rsplit(":", 1)[-1]
     if legacy_candidate.isdigit():
         return int(legacy_candidate)
+    return None
+
+
+def claim_token_owner_pid(claim_token: str | None) -> int | None:
+    if not claim_token:
+        return None
+    match = re.search(r":pid-(\d+)(?::|$)", claim_token)
+    if match:
+        return int(match.group(1))
     return None
 
 
@@ -843,6 +897,16 @@ def validate_loader_runtime(force_replay: bool = False) -> None:
         raise RuntimeError("LOADER_WORKER_SLOT must be within configured LOADER_CONCURRENCY")
     if LOADER_RECORD_BATCH_SIZE <= 0:
         raise RuntimeError("LOADER_RECORD_BATCH_SIZE must be > 0")
+    if LOADER_SEGMENT_STALE_SECONDS <= 0:
+        raise RuntimeError("LOADER_SEGMENT_STALE_SECONDS must be > 0")
+    if LOADER_RUNTIME_LOCK_STALE_SECONDS <= 0:
+        raise RuntimeError("LOADER_RUNTIME_LOCK_STALE_SECONDS must be > 0")
+    if LOADER_FAILED_RETRY_BACKOFF_SECONDS < 0:
+        raise RuntimeError("LOADER_FAILED_RETRY_BACKOFF_SECONDS must be >= 0")
+    if LOADER_MAX_ATTEMPTS <= 0:
+        raise RuntimeError("LOADER_MAX_ATTEMPTS must be > 0")
+    if LOADER_SQLITE_BUSY_TIMEOUT_MS <= 0:
+        raise RuntimeError("LOADER_SQLITE_BUSY_TIMEOUT_MS must be > 0")
     if force_replay and LOADER_CONCURRENCY != 1:
         raise RuntimeError("force replay requires LOADER_CONCURRENCY=1")
 
@@ -874,21 +938,33 @@ def acquire_runtime_lock(connection: sqlite3.Connection, run_id: str) -> str:
     owner_id = runtime_lock_owner_id(run_id)
     connection.execute("DELETE FROM loader_runtime_lock WHERE lock_name = ? AND released_at IS NOT NULL", (RUNTIME_LOCK_NAME,))
     existing = connection.execute(
-        "SELECT owner_id FROM loader_runtime_lock WHERE lock_name = ? AND released_at IS NULL",
+        "SELECT owner_id, acquired_at FROM loader_runtime_lock WHERE lock_name = ? AND released_at IS NULL",
         (RUNTIME_LOCK_NAME,),
     ).fetchone()
     if existing and existing[0] != owner_id:
         existing_owner = str(existing[0])
+        acquired_at = str(existing[1]) if existing[1] is not None else None
         existing_pid = owner_pid_from_lock_owner(existing_owner)
-        if existing_pid is not None and not process_exists(existing_pid):
+        lock_can_be_reclaimed = False
+        if existing_pid is not None:
+            lock_can_be_reclaimed = not process_exists(existing_pid)
+        elif timestamp_age_exceeds(acquired_at, LOADER_RUNTIME_LOCK_STALE_SECONDS):
+            lock_can_be_reclaimed = True
+        if lock_can_be_reclaimed:
             connection.execute(
-                "UPDATE loader_runtime_lock SET released_at = ? WHERE lock_name = ? AND owner_id = ?",
-                (utc_now_iso(), RUNTIME_LOCK_NAME, existing_owner),
+                """
+                UPDATE loader_runtime_lock
+                SET owner_id = ?,
+                    clickhouse_database = ?,
+                    acquired_at = ?,
+                    released_at = NULL
+                WHERE lock_name = ? AND owner_id = ?
+                """,
+                (owner_id, CLICKHOUSE_DATABASE, utc_now_iso(), RUNTIME_LOCK_NAME, existing_owner),
             )
-            existing = None
         else:
             raise RuntimeError(f"loader runtime lock is already held by {existing_owner}")
-    if not existing:
+    elif not existing:
         connection.execute(
             """
             INSERT INTO loader_runtime_lock (lock_name, owner_id, clickhouse_database, acquired_at, released_at)
@@ -963,6 +1039,9 @@ def mark_segment_claimed(connection: sqlite3.Connection, run_id: str, segment_ma
             claim_token = ?,
             attempts = attempts + 1,
             claimed_at = ?,
+            load_started_at = NULL,
+            merged_at = NULL,
+            load_finished_at = NULL,
             last_error = NULL
         WHERE run_id = ? AND segment_id = ?
         """,
@@ -970,25 +1049,157 @@ def mark_segment_claimed(connection: sqlite3.Connection, run_id: str, segment_ma
     )
 
 
+def requeue_or_quarantine_stale_segments(connection: sqlite3.Connection, run_id: str) -> tuple[int, int]:
+    reclaimed = 0
+    quarantined = 0
+    now = datetime.now(timezone.utc)
+    now_iso = now.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    rows = connection.execute(
+        """
+        SELECT segment_id, status, attempts, claim_token, claimed_at, load_started_at, merged_at
+        FROM loaded_segments
+        WHERE run_id = ?
+          AND status IN ('claimed', 'loading', 'merged')
+        ORDER BY segment_id
+        """,
+        (run_id,),
+    ).fetchall()
+    for segment_id, status, attempts, claim_token, claimed_at, load_started_at, merged_at in rows:
+        stale_at = (
+            claimed_at if status == "claimed" else load_started_at if status == "loading" else merged_at
+        )
+        if not timestamp_age_exceeds(str(stale_at) if stale_at is not None else None, LOADER_SEGMENT_STALE_SECONDS, now):
+            continue
+        owner_pid = claim_token_owner_pid(str(claim_token) if claim_token is not None else None)
+        if owner_pid is not None and process_exists(owner_pid):
+            continue
+        if int(attempts) >= LOADER_MAX_ATTEMPTS:
+            connection.execute(
+                """
+                UPDATE loaded_segments
+                SET status = 'quarantined',
+                    claim_token = NULL,
+                    load_finished_at = ?,
+                    last_error = ?
+                WHERE run_id = ? AND segment_id = ?
+                """,
+                (
+                    now_iso,
+                    f"segment stale in status {status}; max attempts reached ({attempts}/{LOADER_MAX_ATTEMPTS})",
+                    run_id,
+                    str(segment_id),
+                ),
+            )
+            quarantined += 1
+            continue
+        connection.execute(
+            """
+            UPDATE loaded_segments
+            SET status = 'pending',
+                claim_token = NULL,
+                claimed_at = NULL,
+                load_started_at = NULL,
+                merged_at = NULL,
+                load_finished_at = NULL,
+                last_error = ?
+            WHERE run_id = ? AND segment_id = ?
+            """,
+            (
+                f"segment stale in status {status}; requeued for retry ({attempts}/{LOADER_MAX_ATTEMPTS})",
+                run_id,
+                str(segment_id),
+            ),
+        )
+        reclaimed += 1
+    return reclaimed, quarantined
+
+
+def quarantine_exhausted_failed_segments(connection: sqlite3.Connection, run_id: str) -> int:
+    now_iso = utc_now_iso()
+    rows = connection.execute(
+        """
+        SELECT segment_id, attempts
+        FROM loaded_segments
+        WHERE run_id = ?
+          AND status = 'failed'
+          AND attempts >= ?
+        ORDER BY segment_id
+        """,
+        (run_id, LOADER_MAX_ATTEMPTS),
+    ).fetchall()
+    for segment_id, attempts in rows:
+        connection.execute(
+            """
+            UPDATE loaded_segments
+            SET status = 'quarantined',
+                load_finished_at = ?,
+                last_error = CASE
+                    WHEN last_error IS NULL OR last_error = '' THEN ?
+                    ELSE last_error || ' | ' || ?
+                END
+            WHERE run_id = ? AND segment_id = ?
+            """,
+            (
+                now_iso,
+                f"max attempts reached ({attempts}/{LOADER_MAX_ATTEMPTS})",
+                f"max attempts reached ({attempts}/{LOADER_MAX_ATTEMPTS})",
+                run_id,
+                str(segment_id),
+            ),
+        )
+    return len(rows)
+
+
+def failed_segment_retry_ready(load_finished_at: str | None, now: datetime | None = None) -> bool:
+    if LOADER_FAILED_RETRY_BACKOFF_SECONDS == 0:
+        return True
+    return timestamp_age_exceeds(load_finished_at, LOADER_FAILED_RETRY_BACKOFF_SECONDS, now)
+
+
 def claim_next_segment_manifest(
     connection: sqlite3.Connection,
     run_id: str,
     manifest_by_id: dict[str, dict[str, Any]],
 ) -> dict[str, Any] | None:
-    placeholders = ", ".join("?" for _ in CLAIMABLE_SEGMENT_STATUSES)
     connection.execute("BEGIN IMMEDIATE")
     try:
+        requeue_or_quarantine_stale_segments(connection, run_id)
+        quarantine_exhausted_failed_segments(connection, run_id)
         row = connection.execute(
-            f"""
+            """
             SELECT segment_id
             FROM loaded_segments
             WHERE run_id = ?
-              AND status IN ({placeholders})
+              AND status = 'pending'
             ORDER BY segment_id
             LIMIT 1
             """,
-            (run_id, *CLAIMABLE_SEGMENT_STATUSES),
+            (run_id,),
         ).fetchone()
+        if row is None:
+            retry_candidates = connection.execute(
+                """
+                SELECT segment_id, load_finished_at
+                FROM loaded_segments
+                WHERE run_id = ?
+                  AND status = 'failed'
+                  AND attempts < ?
+                ORDER BY segment_id
+                """,
+                (run_id, LOADER_MAX_ATTEMPTS),
+            ).fetchall()
+            now = datetime.now(timezone.utc)
+            row = next(
+                (
+                    (segment_id,)
+                    for segment_id, load_finished_at in retry_candidates
+                    if failed_segment_retry_ready(
+                        str(load_finished_at) if load_finished_at is not None else None,
+                        now,
+                    )
+                ),
+                None,
+            )
         if row is None:
             connection.commit()
             return None
@@ -1102,15 +1313,29 @@ def mark_segment_failed(
     status: str,
     error_text: str,
 ) -> None:
+    effective_status = status
+    attempts_row = connection.execute(
+        """
+        SELECT attempts
+        FROM loaded_segments
+        WHERE run_id = ? AND segment_id = ?
+        """,
+        (run_id, segment_manifest["segment_id"]),
+    ).fetchone()
+    attempts = 0 if attempts_row is None else int(attempts_row[0])
+    if status == "failed" and attempts >= LOADER_MAX_ATTEMPTS:
+        effective_status = "quarantined"
+        error_text = f"{error_text} | max attempts reached ({attempts}/{LOADER_MAX_ATTEMPTS})"
     connection.execute(
         """
         UPDATE loaded_segments
         SET status = ?,
+            claim_token = NULL,
             load_finished_at = ?,
             last_error = ?
         WHERE run_id = ? AND segment_id = ?
         """,
-        (status, utc_now_iso(), error_text, run_id, segment_manifest["segment_id"]),
+        (effective_status, utc_now_iso(), error_text, run_id, segment_manifest["segment_id"]),
     )
 
 
@@ -1278,7 +1503,7 @@ def load_run_from_s3(
     storage = storage_client or Boto3S3BufferClient(region_name=region)
     target = load_target or default_clickhouse_target_from_env()
     loader_db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(loader_db_path)
+    connection = open_loader_connection(loader_db_path)
     lock_owner: str | None = None
     try:
         ensure_loader_state_schema(connection, loader_schema_path)
@@ -1447,7 +1672,7 @@ def load_run_from_s3(
 def validate_loaded_run(run_id: str, loader_db_path: Path, loader_schema_path: Path, load_target: Any | None = None) -> dict[str, Any]:
     target = load_target or default_clickhouse_target_from_env()
     loader_db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(loader_db_path)
+    connection = open_loader_connection(loader_db_path)
     try:
         ensure_loader_state_schema(connection, loader_schema_path)
         legs_backfilled = 0
