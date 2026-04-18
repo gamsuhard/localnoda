@@ -8,7 +8,7 @@
   "plugin_type": "custom-file-sink",
   "plugin_build_id": "__FILL__",
   "sink_codec": "ndjson.gz",
-  "segment_target_bytes": 536870912,
+  "segment_target_bytes": 671088640,
   "s3_bucket": "goldusdt-v2-stage-913378704801-raw",
   "s3_prefix_root": "providers/tron-usdt-backfill/usdt-transfer-oneoff",
   "extractor_region": "ap-southeast-1",

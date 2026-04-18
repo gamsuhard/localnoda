@@ -17,16 +17,16 @@ This means:
 
 ### Loader
 
-- `LOADER_CONCURRENCY=1`
-- `LOADER_RECORD_BATCH_SIZE=25000`
+- `LOADER_CONCURRENCY=2`
+- `LOADER_RECORD_BATCH_SIZE=350000`
 - exact-tree deploy only
-- single loader worker only
-- runtime lock must remain enabled
+- two-worker loader only with isolated per-slot staging
+- runtime lock and shared SQLite ledger must remain enabled
 
 ### Extractor / segment target
 
 - `TRON_FILE_SINK_SEGMENT_MAX_RECORDS=500000`
-- `TRON_FILE_SINK_SEGMENT_MAX_BYTES=536870912`
+- `TRON_FILE_SINK_SEGMENT_MAX_BYTES=671088640`
 - extractor -> S3 -> loader -> private ClickHouse contour only
 
 ### Extractor upload mode
@@ -52,12 +52,13 @@ runtime default until the code and evidence are pushed and reviewed.
 
 ## Exact frozen evidence references
 
-- latest public loader stress recommendation remains:
-  - `LOADER_RECORD_BATCH_SIZE=25000`
-  - `records/segment target=250000`
-- latest real final-settings proof remains the local canary rerun:
-  - schema `tron_usdt_final25k_20260416t145309z`
-  - replay-safe on real data
+- latest public loader stress recommendation remains the basis for the current contour, but live runtime has since been tuned upward under operator supervision:
+  - `LOADER_RECORD_BATCH_SIZE=350000`
+  - `records/segment target=500000`
+- current live contour keeps:
+  - deferred legs in hot path disabled
+  - per-segment canonical recounts skipped on initial pass
+  - two-worker isolated staging on the Frankfurt loader host
 
 ## What this freeze does not do
 
