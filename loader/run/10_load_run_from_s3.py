@@ -196,6 +196,28 @@ def stage_table_names(worker_slot: int) -> tuple[str, str]:
     return f"{BASE_EVENTS_STAGE_TABLE}{suffix}", f"{BASE_LEGS_STAGE_TABLE}{suffix}"
 
 
+def runtime_lock_owner_id(run_id: str) -> str:
+    return f"{run_id}:slot-{LOADER_WORKER_SLOT}:pid-{os.getpid()}"
+
+
+def owner_pid_from_lock_owner(owner_id: str) -> int | None:
+    match = re.search(r":pid-(\d+)$", owner_id)
+    if match:
+        return int(match.group(1))
+    legacy_candidate = owner_id.rsplit(":", 1)[-1]
+    if legacy_candidate.isdigit():
+        return int(legacy_candidate)
+    return None
+
+
+def process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
 def event_row_as_tuple(row: dict[str, Any]) -> tuple[Any, ...]:
     return (
         row["chain"],
@@ -849,14 +871,23 @@ def upsert_loader_run(
 
 
 def acquire_runtime_lock(connection: sqlite3.Connection, run_id: str) -> str:
-    owner_id = f"{run_id}:{os.getpid()}"
+    owner_id = runtime_lock_owner_id(run_id)
     connection.execute("DELETE FROM loader_runtime_lock WHERE lock_name = ? AND released_at IS NOT NULL", (RUNTIME_LOCK_NAME,))
     existing = connection.execute(
         "SELECT owner_id FROM loader_runtime_lock WHERE lock_name = ? AND released_at IS NULL",
         (RUNTIME_LOCK_NAME,),
     ).fetchone()
     if existing and existing[0] != owner_id:
-        raise RuntimeError(f"loader runtime lock is already held by {existing[0]}")
+        existing_owner = str(existing[0])
+        existing_pid = owner_pid_from_lock_owner(existing_owner)
+        if existing_pid is not None and not process_exists(existing_pid):
+            connection.execute(
+                "UPDATE loader_runtime_lock SET released_at = ? WHERE lock_name = ? AND owner_id = ?",
+                (utc_now_iso(), RUNTIME_LOCK_NAME, existing_owner),
+            )
+            existing = None
+        else:
+            raise RuntimeError(f"loader runtime lock is already held by {existing_owner}")
     if not existing:
         connection.execute(
             """

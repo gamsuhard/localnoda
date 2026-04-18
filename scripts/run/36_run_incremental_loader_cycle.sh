@@ -33,6 +33,8 @@ if [ ! -x "$LOADER_PYTHON_BIN" ]; then
   exit 1
 fi
 
+export LOADER_WORKER_SLOT
+
 mkdir -p "$(dirname "$LOADER_DB_PATH")" "$WORKSPACE_ROOT/reports/load"
 
 exec "$LOADER_PYTHON_BIN" "$WORKSPACE_ROOT/loader/run/10_load_run_from_s3.py" \
