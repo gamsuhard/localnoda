@@ -18,6 +18,7 @@ set +a
 : "${LOADER_PYTHON_BIN:?LOADER_PYTHON_BIN is required}"
 : "${LOADER_DB_PATH:=$WORKSPACE_ROOT/runtime/loader_state.sqlite}"
 : "${LOADER_SCHEMA_PATH:=$WORKSPACE_ROOT/loader/sql/020_loader_state.sql}"
+: "${LOADER_WORKER_SLOT:=1}"
 : "${LOADER_RUN_ID:=${TRON_FILE_SINK_RUN_ID:-${S3_BUFFER_RUN_ID:-}}}"
 : "${S3_BUFFER_BUCKET:?S3_BUFFER_BUCKET is required}"
 : "${S3_BUFFER_PREFIX_ROOT:?S3_BUFFER_PREFIX_ROOT is required}"

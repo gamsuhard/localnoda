@@ -46,6 +46,22 @@ CREATE TABLE IF NOT EXISTS tron_usdt_local.address_transfer_legs_staging
 )
 ENGINE = Memory;
 
+CREATE TABLE IF NOT EXISTS tron_usdt_local.trc20_transfer_events_staging_w01
+AS tron_usdt_local.trc20_transfer_events_staging
+ENGINE = Memory;
+
+CREATE TABLE IF NOT EXISTS tron_usdt_local.trc20_transfer_events_staging_w02
+AS tron_usdt_local.trc20_transfer_events_staging
+ENGINE = Memory;
+
+CREATE TABLE IF NOT EXISTS tron_usdt_local.address_transfer_legs_staging_w01
+AS tron_usdt_local.address_transfer_legs_staging
+ENGINE = Memory;
+
+CREATE TABLE IF NOT EXISTS tron_usdt_local.address_transfer_legs_staging_w02
+AS tron_usdt_local.address_transfer_legs_staging
+ENGINE = Memory;
+
 CREATE TABLE IF NOT EXISTS tron_usdt_local.trc20_transfer_events
 (
     chain LowCardinality(String) DEFAULT 'tron',

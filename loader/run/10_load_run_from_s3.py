@@ -31,19 +31,25 @@ from loader.normalizer.tron_usdt_transfer_normalizer import normalize_records
 
 
 CLICKHOUSE_DATABASE = os.environ.get("CLICKHOUSE_DATABASE", "tron_usdt_local")
-LOADER_CONCURRENCY = int(os.environ.get("LOADER_CONCURRENCY", "1"))
+LOADER_CONCURRENCY = int(os.environ.get("LOADER_CONCURRENCY", "2"))
+LOADER_WORKER_SLOT = int(os.environ.get("LOADER_WORKER_SLOT", "1"))
 LOADER_RECORD_BATCH_SIZE = int(os.environ.get("LOADER_RECORD_BATCH_SIZE", "250000"))
 LOADER_BUILD_LEGS_IN_HOT_PATH = os.environ.get("LOADER_BUILD_LEGS_IN_HOT_PATH", "0") == "1"
 LOADER_SKIP_PER_SEGMENT_CANONICAL_COUNTS = os.environ.get("LOADER_SKIP_PER_SEGMENT_CANONICAL_COUNTS", "1") == "1"
-RUNTIME_LOCK_NAME = f"{CLICKHOUSE_DATABASE}:single-worker"
+RUNTIME_LOCK_NAME = (
+    f"{CLICKHOUSE_DATABASE}:single-worker"
+    if LOADER_CONCURRENCY == 1
+    else f"{CLICKHOUSE_DATABASE}:worker-slot-{LOADER_WORKER_SLOT}"
+)
 
-EVENTS_STAGE_TABLE = f"{CLICKHOUSE_DATABASE}.trc20_transfer_events_staging"
+BASE_EVENTS_STAGE_TABLE = f"{CLICKHOUSE_DATABASE}.trc20_transfer_events_staging"
 EVENTS_TABLE = f"{CLICKHOUSE_DATABASE}.trc20_transfer_events"
-LEGS_STAGE_TABLE = f"{CLICKHOUSE_DATABASE}.address_transfer_legs_staging"
+BASE_LEGS_STAGE_TABLE = f"{CLICKHOUSE_DATABASE}.address_transfer_legs_staging"
 LEGS_TABLE = f"{CLICKHOUSE_DATABASE}.address_transfer_legs"
 AUDIT_TABLE = f"{CLICKHOUSE_DATABASE}.load_audit"
 
 SEGMENT_TERMINAL_STATUSES = {"validated", "failed", "quarantined", "skipped"}
+CLAIMABLE_SEGMENT_STATUSES = ("pending", "failed")
 
 EVENT_INSERT_COLUMNS = (
     "chain",
@@ -183,6 +189,13 @@ def parse_ch_datetime64(value: str | None) -> datetime | None:
     return datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=timezone.utc)
 
 
+def stage_table_names(worker_slot: int) -> tuple[str, str]:
+    if LOADER_CONCURRENCY == 1:
+        return BASE_EVENTS_STAGE_TABLE, BASE_LEGS_STAGE_TABLE
+    suffix = f"_w{worker_slot:02d}"
+    return f"{BASE_EVENTS_STAGE_TABLE}{suffix}", f"{BASE_LEGS_STAGE_TABLE}{suffix}"
+
+
 def event_row_as_tuple(row: dict[str, Any]) -> tuple[Any, ...]:
     return (
         row["chain"],
@@ -268,16 +281,29 @@ class Boto3S3BufferClient:
 
 
 class ClickHouseCliTarget:
-    def __init__(self, host: str, port: int, user: str, password: str, secure: bool) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        user: str,
+        password: str,
+        secure: bool,
+        *,
+        events_stage_table: str,
+        legs_stage_table: str,
+    ) -> None:
         self.host = host
         self.port = port
         self.user = user
         self.password = password
         self.secure = secure
+        self.events_stage_table = events_stage_table
+        self.legs_stage_table = legs_stage_table
         self._active_run_id: str | None = None
         self._active_segment_id: str | None = None
         self._active_metrics: SegmentMetrics | None = None
         self._query_sequence: int = 0
+        self._ensure_stage_tables()
 
     def _base_args(self) -> list[str]:
         args = [
@@ -335,6 +361,18 @@ class ClickHouseCliTarget:
             )
         return completed.stdout.strip()
 
+    def _ensure_stage_tables(self) -> None:
+        if self.events_stage_table != BASE_EVENTS_STAGE_TABLE:
+            self._run_query(
+                f"CREATE TABLE IF NOT EXISTS {self.events_stage_table} AS {BASE_EVENTS_STAGE_TABLE} ENGINE = Memory",
+                step="ensure_events_stage_table",
+            )
+        if self.legs_stage_table != BASE_LEGS_STAGE_TABLE:
+            self._run_query(
+                f"CREATE TABLE IF NOT EXISTS {self.legs_stage_table} AS {BASE_LEGS_STAGE_TABLE} ENGINE = Memory",
+                step="ensure_legs_stage_table",
+            )
+
     def insert_json_rows(self, table_name: str, rows: list[dict[str, Any]], step: str) -> None:
         if not rows:
             return
@@ -346,8 +384,8 @@ class ClickHouseCliTarget:
         return int(result or "0")
 
     def reset_stage_tables(self) -> None:
-        self._run_query(f"TRUNCATE TABLE {EVENTS_STAGE_TABLE}", step="truncate_events_stage")
-        self._run_query(f"TRUNCATE TABLE {LEGS_STAGE_TABLE}", step="truncate_legs_stage")
+        self._run_query(f"TRUNCATE TABLE {self.events_stage_table}", step="truncate_events_stage")
+        self._run_query(f"TRUNCATE TABLE {self.legs_stage_table}", step="truncate_legs_stage")
 
     def append_stage_rows(
         self,
@@ -355,9 +393,9 @@ class ClickHouseCliTarget:
         leg_rows: list[dict[str, Any]] | None = None,
         batch_index: int = 0,
     ) -> None:
-        self.insert_json_rows(EVENTS_STAGE_TABLE, event_rows, step=f"insert_events_stage_batch_{batch_index:05d}")
+        self.insert_json_rows(self.events_stage_table, event_rows, step=f"insert_events_stage_batch_{batch_index:05d}")
         if leg_rows:
-            self.insert_json_rows(LEGS_STAGE_TABLE, leg_rows, step=f"insert_legs_stage_batch_{batch_index:05d}")
+            self.insert_json_rows(self.legs_stage_table, leg_rows, step=f"insert_legs_stage_batch_{batch_index:05d}")
 
     def merge_segment(
         self,
@@ -378,7 +416,7 @@ class ClickHouseCliTarget:
             f"""
             INSERT INTO {EVENTS_TABLE}
             SELECT *
-            FROM {EVENTS_STAGE_TABLE} s
+            FROM {self.events_stage_table} s
             WHERE NOT EXISTS (
                 SELECT 1
                 FROM {EVENTS_TABLE} c
@@ -392,7 +430,7 @@ class ClickHouseCliTarget:
                 f"""
                 INSERT INTO {LEGS_TABLE}
                 SELECT *
-                FROM {LEGS_STAGE_TABLE} s
+                FROM {self.legs_stage_table} s
                 WHERE NOT EXISTS (
                     SELECT 1
                     FROM {LEGS_TABLE} c
@@ -481,7 +519,17 @@ class ClickHouseCliTarget:
 
 
 class ClickHouseNativeTarget:
-    def __init__(self, host: str, port: int, user: str, password: str, secure: bool) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        user: str,
+        password: str,
+        secure: bool,
+        *,
+        events_stage_table: str,
+        legs_stage_table: str,
+    ) -> None:
         from clickhouse_driver import Client
 
         self._client = Client(
@@ -496,10 +544,13 @@ class ClickHouseNativeTarget:
             sync_request_timeout=300,
             compression=True,
         )
+        self.events_stage_table = events_stage_table
+        self.legs_stage_table = legs_stage_table
         self._active_run_id: str | None = None
         self._active_segment_id: str | None = None
         self._active_metrics: SegmentMetrics | None = None
         self._query_sequence: int = 0
+        self._ensure_stage_tables()
 
     def begin_segment(self, run_id: str, segment_id: str, metrics: SegmentMetrics) -> None:
         self._active_run_id = run_id
@@ -540,6 +591,18 @@ class ClickHouseNativeTarget:
                 current_process_peak_rss_kb(),
             )
 
+    def _ensure_stage_tables(self) -> None:
+        if self.events_stage_table != BASE_EVENTS_STAGE_TABLE:
+            self._run_query(
+                f"CREATE TABLE IF NOT EXISTS {self.events_stage_table} AS {BASE_EVENTS_STAGE_TABLE} ENGINE = Memory",
+                step="ensure_events_stage_table",
+            )
+        if self.legs_stage_table != BASE_LEGS_STAGE_TABLE:
+            self._run_query(
+                f"CREATE TABLE IF NOT EXISTS {self.legs_stage_table} AS {BASE_LEGS_STAGE_TABLE} ENGINE = Memory",
+                step="ensure_legs_stage_table",
+            )
+
     def _run_query(self, query: str, step: str = "query", data: list[tuple[Any, ...]] | None = None) -> Any:
         started = time.perf_counter()
         query_id = self._query_id(step)
@@ -571,8 +634,8 @@ class ClickHouseNativeTarget:
         return int(result[0][0])
 
     def reset_stage_tables(self) -> None:
-        self._run_query(f"TRUNCATE TABLE {EVENTS_STAGE_TABLE}", step="truncate_events_stage")
-        self._run_query(f"TRUNCATE TABLE {LEGS_STAGE_TABLE}", step="truncate_legs_stage")
+        self._run_query(f"TRUNCATE TABLE {self.events_stage_table}", step="truncate_events_stage")
+        self._run_query(f"TRUNCATE TABLE {self.legs_stage_table}", step="truncate_legs_stage")
 
     def append_stage_rows(
         self,
@@ -581,7 +644,7 @@ class ClickHouseNativeTarget:
         batch_index: int = 0,
     ) -> None:
         self.insert_rows(
-            EVENTS_STAGE_TABLE,
+            self.events_stage_table,
             EVENT_INSERT_COLUMNS,
             event_rows,
             event_row_as_tuple,
@@ -589,7 +652,7 @@ class ClickHouseNativeTarget:
         )
         if leg_rows:
             self.insert_rows(
-                LEGS_STAGE_TABLE,
+                self.legs_stage_table,
                 LEG_INSERT_COLUMNS,
                 leg_rows,
                 leg_row_as_tuple,
@@ -615,7 +678,7 @@ class ClickHouseNativeTarget:
             f"""
             INSERT INTO {EVENTS_TABLE}
             SELECT *
-            FROM {EVENTS_STAGE_TABLE} s
+            FROM {self.events_stage_table} s
             WHERE NOT EXISTS (
                 SELECT 1
                 FROM {EVENTS_TABLE} c
@@ -629,7 +692,7 @@ class ClickHouseNativeTarget:
                 f"""
                 INSERT INTO {LEGS_TABLE}
                 SELECT *
-                FROM {LEGS_STAGE_TABLE} s
+                FROM {self.legs_stage_table} s
                 WHERE NOT EXISTS (
                     SELECT 1
                     FROM {LEGS_TABLE} c
@@ -751,11 +814,15 @@ def iter_record_batches(local_path: Path, codec: str, batch_size: int) -> Iterat
         yield records_batch
 
 
-def enforce_single_worker_mode() -> None:
-    if LOADER_CONCURRENCY != 1:
-        raise RuntimeError("LOADER_CONCURRENCY must be 1 while staging tables are global and single-worker only")
+def validate_loader_runtime(force_replay: bool = False) -> None:
+    if LOADER_CONCURRENCY < 1 or LOADER_CONCURRENCY > 2:
+        raise RuntimeError("LOADER_CONCURRENCY must be between 1 and 2")
+    if LOADER_WORKER_SLOT < 1 or LOADER_WORKER_SLOT > LOADER_CONCURRENCY:
+        raise RuntimeError("LOADER_WORKER_SLOT must be within configured LOADER_CONCURRENCY")
     if LOADER_RECORD_BATCH_SIZE <= 0:
         raise RuntimeError("LOADER_RECORD_BATCH_SIZE must be > 0")
+    if force_replay and LOADER_CONCURRENCY != 1:
+        raise RuntimeError("force replay requires LOADER_CONCURRENCY=1")
 
 
 def upsert_loader_run(
@@ -870,6 +937,42 @@ def mark_segment_claimed(connection: sqlite3.Connection, run_id: str, segment_ma
         """,
         (claim_token, utc_now_iso(), run_id, segment_manifest["segment_id"]),
     )
+
+
+def claim_next_segment_manifest(
+    connection: sqlite3.Connection,
+    run_id: str,
+    manifest_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    placeholders = ", ".join("?" for _ in CLAIMABLE_SEGMENT_STATUSES)
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        row = connection.execute(
+            f"""
+            SELECT segment_id
+            FROM loaded_segments
+            WHERE run_id = ?
+              AND status IN ({placeholders})
+            ORDER BY segment_id
+            LIMIT 1
+            """,
+            (run_id, *CLAIMABLE_SEGMENT_STATUSES),
+        ).fetchone()
+        if row is None:
+            connection.commit()
+            return None
+        segment_id = str(row[0])
+        segment_manifest = manifest_by_id.get(segment_id)
+        if segment_manifest is None:
+            connection.commit()
+            return None
+        claim_token = f"{run_id}:slot-{LOADER_WORKER_SLOT}:pid-{os.getpid()}:{segment_id}:{int(time.time() * 1000)}"
+        mark_segment_claimed(connection, run_id, segment_manifest, claim_token)
+        connection.commit()
+        return segment_manifest
+    except Exception:
+        connection.rollback()
+        raise
 
 
 def mark_segment_loading(connection: sqlite3.Connection, run_id: str, segment_manifest: dict[str, Any]) -> None:
@@ -1032,6 +1135,39 @@ def list_segment_manifest_keys(storage_client: Any, bucket: str, prefix_root: st
     return sorted(storage_client.list_keys(bucket, prefix))
 
 
+def finalize_loader_run_if_idle(
+    connection: sqlite3.Connection,
+    run_id: str,
+    bucket: str,
+    prefix_root: str,
+) -> None:
+    active_segments = connection.execute(
+        """
+        SELECT count(*)
+        FROM loaded_segments
+        WHERE run_id = ?
+          AND status IN ('pending', 'claimed', 'loading', 'merged')
+        """,
+        (run_id,),
+    ).fetchone()
+    failed_segments = connection.execute(
+        """
+        SELECT count(*)
+        FROM loaded_segments
+        WHERE run_id = ?
+          AND status IN ('failed', 'quarantined')
+        """,
+        (run_id,),
+    ).fetchone()
+    active_count = 0 if active_segments is None else int(active_segments[0])
+    failed_count = 0 if failed_segments is None else int(failed_segments[0])
+    if active_count == 0 and failed_count == 0:
+        upsert_loader_run(connection, run_id, bucket, prefix_root, "loading")
+        connection.execute("UPDATE loader_runs SET finished_at = ? WHERE run_id = ?", (utc_now_iso(), run_id))
+    elif active_count > 0:
+        connection.execute("UPDATE loader_runs SET finished_at = NULL WHERE run_id = ?", (run_id,))
+
+
 def default_clickhouse_target_from_env() -> Any:
     host = os.environ.get("CLICKHOUSE_HOST", "__SET_PRIVATE_ENDPOINT_HOST__")
     port = int(os.environ.get("CLICKHOUSE_PORT", "9440"))
@@ -1039,12 +1175,37 @@ def default_clickhouse_target_from_env() -> Any:
     password = os.environ.get("CLICKHOUSE_PASSWORD", "")
     secure = os.environ.get("CLICKHOUSE_SECURE", "1") == "1"
     client_mode = os.environ.get("CLICKHOUSE_CLIENT_MODE", "native").lower()
+    events_stage_table, legs_stage_table = stage_table_names(LOADER_WORKER_SLOT)
     if client_mode == "cli":
-        return ClickHouseCliTarget(host=host, port=port, user=user, password=password, secure=secure)
+        return ClickHouseCliTarget(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            secure=secure,
+            events_stage_table=events_stage_table,
+            legs_stage_table=legs_stage_table,
+        )
     try:
-        return ClickHouseNativeTarget(host=host, port=port, user=user, password=password, secure=secure)
+        return ClickHouseNativeTarget(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            secure=secure,
+            events_stage_table=events_stage_table,
+            legs_stage_table=legs_stage_table,
+        )
     except ImportError:
-        return ClickHouseCliTarget(host=host, port=port, user=user, password=password, secure=secure)
+        return ClickHouseCliTarget(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            secure=secure,
+            events_stage_table=events_stage_table,
+            legs_stage_table=legs_stage_table,
+        )
 
 
 def count_segment_rows(load_target: Any, run_id: str, segment_id: str) -> tuple[int, int]:
@@ -1082,7 +1243,7 @@ def load_run_from_s3(
     region: str | None = None,
     force_replay: bool = False,
 ) -> dict[str, Any]:
-    enforce_single_worker_mode()
+    validate_loader_runtime(force_replay=force_replay)
     storage = storage_client or Boto3S3BufferClient(region_name=region)
     target = load_target or default_clickhouse_target_from_env()
     loader_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1097,21 +1258,31 @@ def load_run_from_s3(
         run_manifest = storage.get_json(bucket, run_manifest_key)
         segment_manifest_keys = list_segment_manifest_keys(storage, bucket, prefix_root, run_id)
         segment_manifests = [storage.get_json(bucket, manifest_key) for manifest_key in segment_manifest_keys]
+        manifest_by_id = {str(manifest["segment_id"]): manifest for manifest in segment_manifests}
         sync_segment_work_items(connection, run_id, segment_manifests)
         lock_owner = acquire_runtime_lock(connection, run_id)
         upsert_loader_run(connection, run_id, bucket, prefix_root, "loading")
         connection.commit()
 
         summary_segments: list[dict[str, Any]] = []
-        for segment_manifest in segment_manifests:
-            if should_skip_segment(connection, run_id, segment_manifest, force_replay):
-                mark_segment_skipped(connection, run_id, segment_manifest)
-                connection.commit()
-                summary_segments.append({"segment_id": segment_manifest["segment_id"], "status": "skipped"})
-                continue
-
-            claim_token = f"{segment_manifest['segment_id']}:{int(time.time() * 1000)}"
-            mark_segment_claimed(connection, run_id, segment_manifest, claim_token)
+        replay_manifests = iter(segment_manifests) if force_replay else None
+        while True:
+            if replay_manifests is not None:
+                try:
+                    segment_manifest = next(replay_manifests)
+                except StopIteration:
+                    break
+                if should_skip_segment(connection, run_id, segment_manifest, force_replay):
+                    mark_segment_skipped(connection, run_id, segment_manifest)
+                    connection.commit()
+                    summary_segments.append({"segment_id": segment_manifest["segment_id"], "status": "skipped"})
+                    continue
+                claim_token = f"{segment_manifest['segment_id']}:{int(time.time() * 1000)}"
+                mark_segment_claimed(connection, run_id, segment_manifest, claim_token)
+            else:
+                segment_manifest = claim_next_segment_manifest(connection, run_id, manifest_by_id)
+                if segment_manifest is None:
+                    break
             mark_segment_loading(connection, run_id, segment_manifest)
             connection.commit()
 
@@ -1230,8 +1401,7 @@ def load_run_from_s3(
                 if hasattr(target, "end_segment"):
                     target.end_segment()
 
-        upsert_loader_run(connection, run_id, bucket, prefix_root, "loading")
-        connection.execute("UPDATE loader_runs SET finished_at = ? WHERE run_id = ?", (utc_now_iso(), run_id))
+        finalize_loader_run_if_idle(connection, run_id, bucket, prefix_root)
         connection.commit()
         return {"run_id": run_id, "run_manifest": run_manifest, "segments": summary_segments}
     finally:

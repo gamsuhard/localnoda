@@ -139,7 +139,7 @@ def build_scenarios(stamp: str, real_slice_end_utc: str, args: argparse.Namespac
             )
         )
 
-    for records_per_segment in (10000, 50000, 100000, 250000):
+    for records_per_segment in (10000, 50000, 100000, 250000, 500000, 1000000):
         scenarios.append(
             Scenario(
                 wave="segment-size-sweep",
@@ -398,7 +398,10 @@ def answer_audit_focus(summary_rows: list[dict[str, Any]]) -> dict[str, str]:
             f"best batch run used {batch_best['clickhouse_client_process_count'] if batch_best else 'n/a'} client invocations."
         ),
         "q3_merge_degradation": f"Current merge degradation check: {merge_ratio_text}",
-        "q4_single_worker_stability": "Single-worker path stayed explicit and replay-safe across passed runs; keep LOADER_CONCURRENCY=1.",
+        "q4_single_worker_stability": (
+            "Ledger-driven loader discipline stayed explicit and replay-safe across passed runs; "
+            "use isolated staging when LOADER_CONCURRENCY > 1."
+        ),
         "q5_highest_safe_throughput": (
             f"Highest passed synthetic throughput came from batch {batch_best['batch_size']} and "
             f"records/segment {segsize_best['records_per_segment'] if segsize_best else (largest_segment['records_per_segment'] if largest_segment else 'n/a')}."

@@ -417,6 +417,7 @@ def safe_runtime_env_snapshot() -> dict[str, str]:
         "CLICKHOUSE_SECURE",
         "LOADER_PYTHON_BIN",
         "LOADER_CONCURRENCY",
+        "LOADER_WORKER_SLOT",
         "LOADER_RECORD_BATCH_SIZE",
         "LOADER_BUILD_LEGS_IN_HOT_PATH",
         "LOADER_SKIP_PER_SEGMENT_CANONICAL_COUNTS",

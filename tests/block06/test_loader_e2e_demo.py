@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -30,6 +32,22 @@ def load_module(module_name: str, path: Path):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+@contextmanager
+def temporary_env(**updates: str):
+    previous: dict[str, str | None] = {}
+    for key, value in updates.items():
+        previous[key] = os.environ.get(key)
+        os.environ[key] = value
+    try:
+        yield
+    finally:
+        for key, original in previous.items():
+            if original is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = original
 
 
 class FakeS3BufferClient:
@@ -171,7 +189,8 @@ class LoaderE2EDemoTest(unittest.TestCase):
     def setUp(self) -> None:
         self.generator = load_module("demo_generator_block06", GENERATOR_PATH)
         self.uploader = load_module("segment_uploader_block06", UPLOADER_PATH)
-        self.loader = load_module("run_loader_block06", LOADER_PATH)
+        with temporary_env(LOADER_CONCURRENCY="1", LOADER_WORKER_SLOT="1"):
+            self.loader = load_module("run_loader_block06", LOADER_PATH)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
         self.run_id = "tron-usdt-backfill-20260415-140000Z"
@@ -305,6 +324,14 @@ class LoaderE2EDemoTest(unittest.TestCase):
         self.assertEqual(validation["status"], "ok")
         self.assertEqual(validation["legs"], 24)
         self.assertEqual(validation["legs_backfilled"], 24)
+
+    def test_loader_two_worker_mode_uses_slot_scoped_stage_tables(self) -> None:
+        with temporary_env(LOADER_CONCURRENCY="2", LOADER_WORKER_SLOT="2"):
+            loader = load_module("run_loader_block06_slot2", LOADER_PATH)
+        events_stage, legs_stage = loader.stage_table_names(2)
+        self.assertTrue(events_stage.endswith("_w02"))
+        self.assertTrue(legs_stage.endswith("_w02"))
+        self.assertTrue(loader.RUNTIME_LOCK_NAME.endswith("worker-slot-2"))
 
 
 if __name__ == "__main__":
