@@ -54,7 +54,8 @@ from_block = int(from_override) if from_override else max_block_to + 1
 to_block = int(to_override) if to_override else int(resolved_end_block) if resolved_end_block is not None else None
 
 text = config_path.read_text(encoding="utf-8")
-updated = re.sub(r'fromblock\s*=\s*".*?"', f'fromblock = "{from_block}"', text, count=1)
+updated = re.sub(r'startSyncBlockNum\s*=\s*\d+', f'startSyncBlockNum = {from_block}', text, count=1)
+updated = re.sub(r'fromblock\s*=\s*".*?"', f'fromblock = "{from_block}"', updated, count=1)
 replacement_toblock = f'toblock = "{to_block}"' if to_block is not None else 'toblock = ""'
 updated = re.sub(r'toblock\s*=\s*".*?"', replacement_toblock, updated, count=1)
 
