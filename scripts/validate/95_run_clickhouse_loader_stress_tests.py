@@ -113,7 +113,7 @@ def parse_args() -> argparse.Namespace:
 def build_scenarios(stamp: str, real_slice_end_utc: str, args: argparse.Namespace) -> list[Scenario]:
     scenarios: list[Scenario] = []
 
-    for batch_size in (1000, 5000, 10000, 25000, 50000):
+    for batch_size in (25000, 50000, 100000, 250000):
         scenarios.append(
             Scenario(
                 wave="batch-size-sweep",
@@ -132,7 +132,7 @@ def build_scenarios(stamp: str, real_slice_end_utc: str, args: argparse.Namespac
                 wave="segment-count-sweep",
                 label=f"segments-{segment_count}",
                 run_id=f"stress-segments-{segment_count}-{stamp}",
-                batch_size=10000,
+                batch_size=250000,
                 segment_count=segment_count,
                 records_per_segment=10000,
                 synthetic=True,
@@ -145,7 +145,7 @@ def build_scenarios(stamp: str, real_slice_end_utc: str, args: argparse.Namespac
                 wave="segment-size-sweep",
                 label=f"segment-size-{records_per_segment}",
                 run_id=f"stress-segsize-{records_per_segment}-{stamp}",
-                batch_size=10000,
+                batch_size=250000,
                 segment_count=10,
                 records_per_segment=records_per_segment,
                 synthetic=True,
@@ -157,7 +157,7 @@ def build_scenarios(stamp: str, real_slice_end_utc: str, args: argparse.Namespac
         wave="replay-fault",
         label="medium-initial",
         run_id=medium_run_id,
-        batch_size=10000,
+        batch_size=250000,
         segment_count=10,
         records_per_segment=10000,
         synthetic=True,
@@ -169,7 +169,7 @@ def build_scenarios(stamp: str, real_slice_end_utc: str, args: argparse.Namespac
                 wave="replay-fault",
                 label="medium-restart-replay",
                 run_id=medium_run_id,
-                batch_size=10000,
+                batch_size=250000,
                 segment_count=10,
                 records_per_segment=10000,
                 synthetic=True,
@@ -180,7 +180,7 @@ def build_scenarios(stamp: str, real_slice_end_utc: str, args: argparse.Namespac
                 wave="replay-fault",
                 label="medium-missing-ledger-row",
                 run_id=medium_run_id,
-                batch_size=10000,
+                batch_size=250000,
                 segment_count=10,
                 records_per_segment=10000,
                 synthetic=True,
@@ -192,7 +192,7 @@ def build_scenarios(stamp: str, real_slice_end_utc: str, args: argparse.Namespac
                 wave="replay-fault",
                 label="medium-corrupted-segment",
                 run_id=f"stress-corrupt-{stamp}",
-                batch_size=10000,
+                batch_size=250000,
                 segment_count=10,
                 records_per_segment=10000,
                 synthetic=True,
@@ -210,7 +210,7 @@ def build_scenarios(stamp: str, real_slice_end_utc: str, args: argparse.Namespac
                 wave="real-controlled-slice",
                 label="real-slice-initial",
                 run_id=real_run_id,
-                batch_size=10000,
+                batch_size=250000,
                 segment_count=0,
                 records_per_segment=0,
                 synthetic=False,
@@ -225,7 +225,7 @@ def build_scenarios(stamp: str, real_slice_end_utc: str, args: argparse.Namespac
                 wave="real-controlled-slice",
                 label="real-slice-restart-replay",
                 run_id=real_run_id,
-                batch_size=10000,
+                batch_size=250000,
                 segment_count=0,
                 records_per_segment=0,
                 synthetic=False,
@@ -613,6 +613,8 @@ def main() -> int:
             "TREE_ARTIFACT_SOURCE": artifact_source,
             "LOADER_CONCURRENCY": "1",
             "LOADER_RECORD_BATCH_SIZE": str(scenario.batch_size),
+            "LOADER_BUILD_LEGS_IN_HOT_PATH": "0",
+            "LOADER_SKIP_PER_SEGMENT_CANONICAL_COUNTS": "1",
         }
         if scenario.delete_loaded_segment_id:
             remote_vars["STRESS_DELETE_LOADED_SEGMENT_ID"] = scenario.delete_loaded_segment_id

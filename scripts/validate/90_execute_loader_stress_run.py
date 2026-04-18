@@ -418,6 +418,8 @@ def safe_runtime_env_snapshot() -> dict[str, str]:
         "LOADER_PYTHON_BIN",
         "LOADER_CONCURRENCY",
         "LOADER_RECORD_BATCH_SIZE",
+        "LOADER_BUILD_LEGS_IN_HOT_PATH",
+        "LOADER_SKIP_PER_SEGMENT_CANONICAL_COUNTS",
         "AWS_REGION",
         "S3_BUFFER_BUCKET",
         "S3_BUFFER_PREFIX_ROOT",
