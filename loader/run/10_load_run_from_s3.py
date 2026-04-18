@@ -14,6 +14,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -31,7 +32,8 @@ from loader.normalizer.tron_usdt_transfer_normalizer import normalize_records
 
 CLICKHOUSE_DATABASE = os.environ.get("CLICKHOUSE_DATABASE", "tron_usdt_local")
 LOADER_CONCURRENCY = int(os.environ.get("LOADER_CONCURRENCY", "1"))
-LOADER_RECORD_BATCH_SIZE = int(os.environ.get("LOADER_RECORD_BATCH_SIZE", "1000"))
+LOADER_RECORD_BATCH_SIZE = int(os.environ.get("LOADER_RECORD_BATCH_SIZE", "250000"))
+LOADER_BUILD_LEGS_IN_HOT_PATH = os.environ.get("LOADER_BUILD_LEGS_IN_HOT_PATH", "0") == "1"
 RUNTIME_LOCK_NAME = f"{CLICKHOUSE_DATABASE}:single-worker"
 
 EVENTS_STAGE_TABLE = f"{CLICKHOUSE_DATABASE}.trc20_transfer_events_staging"
@@ -41,6 +43,61 @@ LEGS_TABLE = f"{CLICKHOUSE_DATABASE}.address_transfer_legs"
 AUDIT_TABLE = f"{CLICKHOUSE_DATABASE}.load_audit"
 
 SEGMENT_TERMINAL_STATUSES = {"validated", "failed", "quarantined", "skipped"}
+
+EVENT_INSERT_COLUMNS = (
+    "chain",
+    "token_symbol",
+    "event_id",
+    "contract_address",
+    "block_number",
+    "block_timestamp",
+    "block_hash",
+    "tx_hash",
+    "log_index",
+    "from_address",
+    "to_address",
+    "amount_raw",
+    "amount_decimal",
+    "raw_topic0",
+    "raw_topic1",
+    "raw_topic2",
+    "raw_data",
+    "source_segment_id",
+    "load_run_id",
+)
+
+LEG_INSERT_COLUMNS = (
+    "leg_id",
+    "event_id",
+    "address",
+    "direction",
+    "counterparty_address",
+    "contract_address",
+    "token_symbol",
+    "block_number",
+    "block_timestamp",
+    "tx_hash",
+    "log_index",
+    "amount_raw",
+    "amount_decimal",
+    "source_segment_id",
+    "load_run_id",
+)
+
+AUDIT_INSERT_COLUMNS = (
+    "load_batch_id",
+    "target_table",
+    "run_id",
+    "segment_id",
+    "source_file",
+    "source_sha256",
+    "source_row_count",
+    "inserted_row_count",
+    "status",
+    "started_at",
+    "finished_at",
+    "note",
+)
 
 
 @dataclass
@@ -117,6 +174,75 @@ def safe_query_id_part(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.:-]+", "-", value)
 
 
+def parse_ch_datetime64(value: str | None) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if "T" in value:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=timezone.utc)
+
+
+def event_row_as_tuple(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        row["chain"],
+        row["token_symbol"],
+        row["event_id"],
+        row["contract_address"],
+        int(row["block_number"]),
+        parse_ch_datetime64(str(row["block_timestamp"])),
+        row["block_hash"],
+        row["tx_hash"],
+        int(row["log_index"]),
+        row["from_address"],
+        row["to_address"],
+        int(row["amount_raw"]),
+        Decimal(str(row["amount_decimal"])),
+        row["raw_topic0"],
+        row["raw_topic1"],
+        row["raw_topic2"],
+        row["raw_data"],
+        row["source_segment_id"],
+        row["load_run_id"],
+    )
+
+
+def leg_row_as_tuple(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        row["leg_id"],
+        row["event_id"],
+        row["address"],
+        row["direction"],
+        row["counterparty_address"],
+        row["contract_address"],
+        row["token_symbol"],
+        int(row["block_number"]),
+        parse_ch_datetime64(str(row["block_timestamp"])),
+        row["tx_hash"],
+        int(row["log_index"]),
+        int(row["amount_raw"]),
+        Decimal(str(row["amount_decimal"])),
+        row["source_segment_id"],
+        row["load_run_id"],
+    )
+
+
+def audit_row_as_tuple(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        row["load_batch_id"],
+        row["target_table"],
+        row["run_id"],
+        row["segment_id"],
+        row["source_file"],
+        row["source_sha256"],
+        int(row["source_row_count"]),
+        int(row["inserted_row_count"]),
+        row["status"],
+        parse_ch_datetime64(str(row["started_at"])),
+        parse_ch_datetime64(str(row["finished_at"])) if row.get("finished_at") else None,
+        row["note"],
+    )
+
+
 class Boto3S3BufferClient:
     def __init__(self, region_name: str | None = None) -> None:
         import boto3
@@ -140,7 +266,7 @@ class Boto3S3BufferClient:
             self._client.download_fileobj(bucket, key, handle)
 
 
-class ClickHouseClientTarget:
+class ClickHouseCliTarget:
     def __init__(self, host: str, port: int, user: str, password: str, secure: bool) -> None:
         self.host = host
         self.port = port
@@ -222,14 +348,20 @@ class ClickHouseClientTarget:
         self._run_query(f"TRUNCATE TABLE {EVENTS_STAGE_TABLE}", step="truncate_events_stage")
         self._run_query(f"TRUNCATE TABLE {LEGS_STAGE_TABLE}", step="truncate_legs_stage")
 
-    def append_stage_rows(self, event_rows: list[dict[str, Any]], leg_rows: list[dict[str, Any]], batch_index: int) -> None:
+    def append_stage_rows(
+        self,
+        event_rows: list[dict[str, Any]],
+        leg_rows: list[dict[str, Any]] | None = None,
+        batch_index: int = 0,
+    ) -> None:
         self.insert_json_rows(EVENTS_STAGE_TABLE, event_rows, step=f"insert_events_stage_batch_{batch_index:05d}")
-        self.insert_json_rows(LEGS_STAGE_TABLE, leg_rows, step=f"insert_legs_stage_batch_{batch_index:05d}")
+        if leg_rows:
+            self.insert_json_rows(LEGS_STAGE_TABLE, leg_rows, step=f"insert_legs_stage_batch_{batch_index:05d}")
 
     def merge_segment(self, run_id: str, segment_id: str) -> dict[str, int]:
         where_clause = f"load_run_id = {sql_quote(run_id)} AND source_segment_id = {sql_quote(segment_id)}"
         before_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_before_events")
-        before_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_before_legs")
+        before_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_before_legs") if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
         self._run_query(
             f"""
             INSERT INTO {EVENTS_TABLE}
@@ -243,21 +375,22 @@ class ClickHouseClientTarget:
             """,
             step="merge_events",
         )
-        self._run_query(
-            f"""
-            INSERT INTO {LEGS_TABLE}
-            SELECT *
-            FROM {LEGS_STAGE_TABLE} s
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM {LEGS_TABLE} c
-                WHERE c.leg_id = s.leg_id
+        if LOADER_BUILD_LEGS_IN_HOT_PATH:
+            self._run_query(
+                f"""
+                INSERT INTO {LEGS_TABLE}
+                SELECT *
+                FROM {LEGS_STAGE_TABLE} s
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM {LEGS_TABLE} c
+                    WHERE c.leg_id = s.leg_id
+                )
+                """,
+                step="merge_legs",
             )
-            """,
-            step="merge_legs",
-        )
         after_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_after_events")
-        after_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_after_legs")
+        after_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_after_legs") if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
         self.reset_stage_tables()
         return {
             "events_inserted": after_events - before_events,
@@ -266,6 +399,291 @@ class ClickHouseClientTarget:
 
     def insert_load_audit(self, rows: list[dict[str, Any]]) -> None:
         self.insert_json_rows(AUDIT_TABLE, rows, step="insert_load_audit")
+
+    def backfill_legs_for_run(self, run_id: str) -> int:
+        where_clause = f"load_run_id = {sql_quote(run_id)}"
+        before_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_before_backfill_legs")
+        run_id_literal = sql_quote(run_id)
+        self._run_query(
+            f"""
+            INSERT INTO {LEGS_TABLE}
+            SELECT *
+            FROM
+            (
+                SELECT
+                    lower(hex(SHA256(concat(event_id, '|outbound|', from_address, '|', to_address)))) AS leg_id,
+                    event_id,
+                    from_address AS address,
+                    CAST('outbound', 'Enum8(\\'outbound\\' = 1, \\'inbound\\' = 2)') AS direction,
+                    to_address AS counterparty_address,
+                    contract_address,
+                    token_symbol,
+                    block_number,
+                    block_timestamp,
+                    tx_hash,
+                    log_index,
+                    amount_raw,
+                    amount_decimal,
+                    source_segment_id,
+                    load_run_id,
+                    now64(3) AS ingested_at
+                FROM {EVENTS_TABLE}
+                WHERE load_run_id = {run_id_literal}
+
+                UNION ALL
+
+                SELECT
+                    lower(hex(SHA256(concat(event_id, '|inbound|', to_address, '|', from_address)))) AS leg_id,
+                    event_id,
+                    to_address AS address,
+                    CAST('inbound', 'Enum8(\\'outbound\\' = 1, \\'inbound\\' = 2)') AS direction,
+                    from_address AS counterparty_address,
+                    contract_address,
+                    token_symbol,
+                    block_number,
+                    block_timestamp,
+                    tx_hash,
+                    log_index,
+                    amount_raw,
+                    amount_decimal,
+                    source_segment_id,
+                    load_run_id,
+                    now64(3) AS ingested_at
+                FROM {EVENTS_TABLE}
+                WHERE load_run_id = {run_id_literal}
+            ) generated
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM {LEGS_TABLE} existing
+                WHERE existing.leg_id = generated.leg_id
+            )
+            """,
+            step="backfill_legs",
+        )
+        after_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_after_backfill_legs")
+        return after_legs - before_legs
+
+
+class ClickHouseNativeTarget:
+    def __init__(self, host: str, port: int, user: str, password: str, secure: bool) -> None:
+        from clickhouse_driver import Client
+
+        self._client = Client(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            secure=secure,
+            database=CLICKHOUSE_DATABASE,
+            connect_timeout=10,
+            send_receive_timeout=300,
+            sync_request_timeout=300,
+            compression=True,
+        )
+        self._active_run_id: str | None = None
+        self._active_segment_id: str | None = None
+        self._active_metrics: SegmentMetrics | None = None
+        self._query_sequence: int = 0
+
+    def begin_segment(self, run_id: str, segment_id: str, metrics: SegmentMetrics) -> None:
+        self._active_run_id = run_id
+        self._active_segment_id = segment_id
+        self._active_metrics = metrics
+        self._query_sequence = 0
+
+    def end_segment(self) -> None:
+        self._active_run_id = None
+        self._active_segment_id = None
+        self._active_metrics = None
+        self._query_sequence = 0
+
+    def close(self) -> None:
+        self._client.disconnect()
+
+    def _query_id(self, step: str) -> str | None:
+        if self._active_run_id is None or self._active_segment_id is None:
+            return None
+        self._query_sequence += 1
+        return ":".join(
+            (
+                "loader",
+                safe_query_id_part(self._active_run_id),
+                safe_query_id_part(self._active_segment_id),
+                f"{self._query_sequence:05d}",
+                safe_query_id_part(step),
+            )
+        )
+
+    def _record_metrics(self, started: float) -> None:
+        if self._active_metrics is not None:
+            elapsed = int((time.perf_counter() - started) * 1000)
+            self._active_metrics.clickhouse_query_count += 1
+            self._active_metrics.clickhouse_query_wall_ms += elapsed
+            self._active_metrics.loader_peak_rss_kb = max(
+                self._active_metrics.loader_peak_rss_kb,
+                current_process_peak_rss_kb(),
+            )
+
+    def _run_query(self, query: str, step: str = "query", data: list[tuple[Any, ...]] | None = None) -> Any:
+        started = time.perf_counter()
+        query_id = self._query_id(step)
+        result = self._client.execute(query, data, query_id=query_id, types_check=False)
+        self._record_metrics(started)
+        return result
+
+    def insert_rows(
+        self,
+        table_name: str,
+        columns: tuple[str, ...],
+        rows: list[dict[str, Any]],
+        row_adapter,
+        step: str,
+    ) -> None:
+        if not rows:
+            return
+        payload = [row_adapter(row) for row in rows]
+        self._run_query(
+            f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES",
+            step=step,
+            data=payload,
+        )
+
+    def count_rows(self, table_name: str, where_clause: str, step: str = "count_rows") -> int:
+        result = self._run_query(f"SELECT count() FROM {table_name} WHERE {where_clause}", step=step)
+        if not result:
+            return 0
+        return int(result[0][0])
+
+    def reset_stage_tables(self) -> None:
+        self._run_query(f"TRUNCATE TABLE {EVENTS_STAGE_TABLE}", step="truncate_events_stage")
+        self._run_query(f"TRUNCATE TABLE {LEGS_STAGE_TABLE}", step="truncate_legs_stage")
+
+    def append_stage_rows(
+        self,
+        event_rows: list[dict[str, Any]],
+        leg_rows: list[dict[str, Any]] | None = None,
+        batch_index: int = 0,
+    ) -> None:
+        self.insert_rows(
+            EVENTS_STAGE_TABLE,
+            EVENT_INSERT_COLUMNS,
+            event_rows,
+            event_row_as_tuple,
+            step=f"insert_events_stage_batch_{batch_index:05d}",
+        )
+        if leg_rows:
+            self.insert_rows(
+                LEGS_STAGE_TABLE,
+                LEG_INSERT_COLUMNS,
+                leg_rows,
+                leg_row_as_tuple,
+                step=f"insert_legs_stage_batch_{batch_index:05d}",
+            )
+
+    def merge_segment(self, run_id: str, segment_id: str) -> dict[str, int]:
+        where_clause = f"load_run_id = {sql_quote(run_id)} AND source_segment_id = {sql_quote(segment_id)}"
+        before_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_before_events")
+        before_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_before_legs") if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
+        self._run_query(
+            f"""
+            INSERT INTO {EVENTS_TABLE}
+            SELECT *
+            FROM {EVENTS_STAGE_TABLE} s
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM {EVENTS_TABLE} c
+                WHERE c.event_id = s.event_id
+            )
+            """,
+            step="merge_events",
+        )
+        if LOADER_BUILD_LEGS_IN_HOT_PATH:
+            self._run_query(
+                f"""
+                INSERT INTO {LEGS_TABLE}
+                SELECT *
+                FROM {LEGS_STAGE_TABLE} s
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM {LEGS_TABLE} c
+                    WHERE c.leg_id = s.leg_id
+                )
+                """,
+                step="merge_legs",
+            )
+        after_events = self.count_rows(EVENTS_TABLE, where_clause, step="count_after_events")
+        after_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_after_legs") if LOADER_BUILD_LEGS_IN_HOT_PATH else 0
+        self.reset_stage_tables()
+        return {
+            "events_inserted": after_events - before_events,
+            "legs_inserted": after_legs - before_legs,
+        }
+
+    def insert_load_audit(self, rows: list[dict[str, Any]]) -> None:
+        self.insert_rows(AUDIT_TABLE, AUDIT_INSERT_COLUMNS, rows, audit_row_as_tuple, step="insert_load_audit")
+
+    def backfill_legs_for_run(self, run_id: str) -> int:
+        where_clause = f"load_run_id = {sql_quote(run_id)}"
+        before_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_before_backfill_legs")
+        run_id_literal = sql_quote(run_id)
+        self._run_query(
+            f"""
+            INSERT INTO {LEGS_TABLE}
+            SELECT *
+            FROM
+            (
+                SELECT
+                    lower(hex(SHA256(concat(event_id, '|outbound|', from_address, '|', to_address)))) AS leg_id,
+                    event_id,
+                    from_address AS address,
+                    CAST('outbound', 'Enum8(\\'outbound\\' = 1, \\'inbound\\' = 2)') AS direction,
+                    to_address AS counterparty_address,
+                    contract_address,
+                    token_symbol,
+                    block_number,
+                    block_timestamp,
+                    tx_hash,
+                    log_index,
+                    amount_raw,
+                    amount_decimal,
+                    source_segment_id,
+                    load_run_id,
+                    now64(3) AS ingested_at
+                FROM {EVENTS_TABLE}
+                WHERE load_run_id = {run_id_literal}
+
+                UNION ALL
+
+                SELECT
+                    lower(hex(SHA256(concat(event_id, '|inbound|', to_address, '|', from_address)))) AS leg_id,
+                    event_id,
+                    to_address AS address,
+                    CAST('inbound', 'Enum8(\\'outbound\\' = 1, \\'inbound\\' = 2)') AS direction,
+                    from_address AS counterparty_address,
+                    contract_address,
+                    token_symbol,
+                    block_number,
+                    block_timestamp,
+                    tx_hash,
+                    log_index,
+                    amount_raw,
+                    amount_decimal,
+                    source_segment_id,
+                    load_run_id,
+                    now64(3) AS ingested_at
+                FROM {EVENTS_TABLE}
+                WHERE load_run_id = {run_id_literal}
+            ) generated
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM {LEGS_TABLE} existing
+                WHERE existing.leg_id = generated.leg_id
+            )
+            """,
+            step="backfill_legs",
+        )
+        after_legs = self.count_rows(LEGS_TABLE, where_clause, step="count_after_backfill_legs")
+        return after_legs - before_legs
 
 
 def iter_segment_records(local_path: Path, codec: str) -> Iterator[dict[str, Any]]:
@@ -539,8 +957,10 @@ def build_audit_rows(
 ) -> list[dict[str, Any]]:
     started_at = utc_now_iso()
     finished_at = utc_now_iso()
-    note = json.dumps(metrics.as_dict(), separators=(",", ":"))
-    return [
+    audit_note = dict(metrics.as_dict())
+    audit_note["legs_deferred"] = not LOADER_BUILD_LEGS_IN_HOT_PATH
+    note = json.dumps(audit_note, separators=(",", ":"))
+    rows = [
         {
             "load_batch_id": f"{run_id}:{segment_manifest['segment_id']}:events",
             "target_table": EVENTS_TABLE,
@@ -555,6 +975,8 @@ def build_audit_rows(
             "finished_at": finished_at,
             "note": note,
         },
+    ]
+    rows.append(
         {
             "load_batch_id": f"{run_id}:{segment_manifest['segment_id']}:legs",
             "target_table": LEGS_TABLE,
@@ -562,14 +984,15 @@ def build_audit_rows(
             "segment_id": segment_manifest["segment_id"],
             "source_file": segment_manifest["s3_key"],
             "source_sha256": segment_manifest["sha256"],
-            "source_row_count": segment_manifest["record_count"] * 2,
+            "source_row_count": metrics.event_rows_expected * 2,
             "inserted_row_count": merge_counts["legs_inserted"],
-            "status": "loaded",
+            "status": "loaded" if LOADER_BUILD_LEGS_IN_HOT_PATH else "deferred",
             "started_at": started_at,
             "finished_at": finished_at,
             "note": note,
-        },
-    ]
+        }
+    )
+    return rows
 
 
 def list_segment_manifest_keys(storage_client: Any, bucket: str, prefix_root: str, run_id: str) -> list[str]:
@@ -577,13 +1000,19 @@ def list_segment_manifest_keys(storage_client: Any, bucket: str, prefix_root: st
     return sorted(storage_client.list_keys(bucket, prefix))
 
 
-def default_clickhouse_target_from_env() -> ClickHouseClientTarget:
+def default_clickhouse_target_from_env() -> Any:
     host = os.environ.get("CLICKHOUSE_HOST", "__SET_PRIVATE_ENDPOINT_HOST__")
     port = int(os.environ.get("CLICKHOUSE_PORT", "9440"))
     user = os.environ.get("CLICKHOUSE_USER", "default")
     password = os.environ.get("CLICKHOUSE_PASSWORD", "")
     secure = os.environ.get("CLICKHOUSE_SECURE", "1") == "1"
-    return ClickHouseClientTarget(host=host, port=port, user=user, password=password, secure=secure)
+    client_mode = os.environ.get("CLICKHOUSE_CLIENT_MODE", "native").lower()
+    if client_mode == "cli":
+        return ClickHouseCliTarget(host=host, port=port, user=user, password=password, secure=secure)
+    try:
+        return ClickHouseNativeTarget(host=host, port=port, user=user, password=password, secure=secure)
+    except ImportError:
+        return ClickHouseCliTarget(host=host, port=port, user=user, password=password, secure=secure)
 
 
 def count_segment_rows(load_target: Any, run_id: str, segment_id: str) -> tuple[int, int]:
@@ -600,6 +1029,8 @@ def validate_segment_counts(load_target: Any, run_id: str, segment_manifest: dic
             f"segment {segment_manifest['segment_id']} canonical event count mismatch: "
             f"expected {metrics.event_rows_expected}, got {actual_events}"
         )
+    if not LOADER_BUILD_LEGS_IN_HOT_PATH:
+        return "validated", None
     if actual_legs != metrics.leg_rows_expected:
         return "quarantined", (
             f"segment {segment_manifest['segment_id']} canonical leg count mismatch: "
@@ -687,9 +1118,17 @@ def load_run_from_s3(
                         batch_index += 1
                         metrics.record_count += len(batch_records)
                         normalize_started = time.perf_counter()
-                        event_rows, leg_rows = normalize_records(batch_records, segment_manifest, run_id)
+                        event_rows, leg_rows = normalize_records(
+                            batch_records,
+                            segment_manifest,
+                            run_id,
+                            include_legs=LOADER_BUILD_LEGS_IN_HOT_PATH,
+                        )
                         event_rows = dedupe_rows(event_rows, "event_id", seen_event_ids)
-                        leg_rows = dedupe_rows(leg_rows, "leg_id", seen_leg_ids)
+                        if LOADER_BUILD_LEGS_IN_HOT_PATH:
+                            leg_rows = dedupe_rows(leg_rows, "leg_id", seen_leg_ids)
+                        else:
+                            leg_rows = []
                         metrics.normalize_ms += elapsed_ms(normalize_started)
                         metrics.event_rows_expected += len(event_rows)
                         metrics.leg_rows_expected += len(leg_rows)
@@ -757,6 +1196,8 @@ def load_run_from_s3(
             release_runtime_lock(connection, lock_owner)
             connection.commit()
         connection.close()
+        if hasattr(target, "close"):
+            target.close()
 
 
 def validate_loaded_run(run_id: str, loader_db_path: Path, loader_schema_path: Path, load_target: Any | None = None) -> dict[str, Any]:
@@ -765,6 +1206,9 @@ def validate_loaded_run(run_id: str, loader_db_path: Path, loader_schema_path: P
     connection = sqlite3.connect(loader_db_path)
     try:
         ensure_loader_state_schema(connection, loader_schema_path)
+        legs_backfilled = 0
+        if not LOADER_BUILD_LEGS_IN_HOT_PATH and hasattr(target, "backfill_legs_for_run"):
+            legs_backfilled = int(target.backfill_legs_for_run(run_id))
         events = target.count_rows(EVENTS_TABLE, f"load_run_id = {sql_quote(run_id)}")
         legs = target.count_rows(LEGS_TABLE, f"load_run_id = {sql_quote(run_id)}")
         status_counts = {
@@ -785,12 +1229,15 @@ def validate_loaded_run(run_id: str, loader_db_path: Path, loader_schema_path: P
             "run_id": run_id,
             "events": events,
             "legs": legs,
+            "legs_backfilled": legs_backfilled,
             "expected_legs": events * 2,
             "segment_status_counts": status_counts,
             "status": status,
         }
     finally:
         connection.close()
+        if hasattr(target, "close"):
+            target.close()
 
 
 def parse_args() -> argparse.Namespace:

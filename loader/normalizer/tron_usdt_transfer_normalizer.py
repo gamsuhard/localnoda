@@ -169,7 +169,12 @@ def build_legs(event_row: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def normalize_records(records: list[dict[str, Any]], segment_manifest: dict[str, Any], load_run_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def normalize_records(
+    records: list[dict[str, Any]],
+    segment_manifest: dict[str, Any],
+    load_run_id: str,
+    include_legs: bool = True,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     events: list[dict[str, Any]] = []
     legs: list[dict[str, Any]] = []
     for payload in records:
@@ -177,5 +182,6 @@ def normalize_records(records: list[dict[str, Any]], segment_manifest: dict[str,
         if event_row["raw_topic0"] != TRANSFER_TOPIC0:
             continue
         events.append(event_row)
-        legs.extend(build_legs(event_row))
+        if include_legs:
+            legs.extend(build_legs(event_row))
     return events, legs

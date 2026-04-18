@@ -23,10 +23,7 @@ CREATE TABLE IF NOT EXISTS tron_usdt_local.trc20_transfer_events_staging
     load_run_id String,
     ingested_at DateTime64(3, 'UTC') DEFAULT now64(3)
 )
-ENGINE = MergeTree
-PARTITION BY toYYYYMM(block_timestamp)
-ORDER BY (load_run_id, source_segment_id, event_id)
-SETTINGS index_granularity = 8192;
+ENGINE = Memory;
 
 CREATE TABLE IF NOT EXISTS tron_usdt_local.address_transfer_legs_staging
 (
@@ -47,10 +44,7 @@ CREATE TABLE IF NOT EXISTS tron_usdt_local.address_transfer_legs_staging
     load_run_id String,
     ingested_at DateTime64(3, 'UTC') DEFAULT now64(3)
 )
-ENGINE = MergeTree
-PARTITION BY toYYYYMM(block_timestamp)
-ORDER BY (load_run_id, source_segment_id, leg_id)
-SETTINGS index_granularity = 8192;
+ENGINE = Memory;
 
 CREATE TABLE IF NOT EXISTS tron_usdt_local.trc20_transfer_events
 (

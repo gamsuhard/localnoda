@@ -7,8 +7,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from loader.normalizer.tron_usdt_transfer_normalizer import build_legs
+
+
 GENERATOR_PATH = PROJECT_ROOT / "scripts" / "demo" / "10_generate_demo_tron_segment.py"
 UPLOADER_PATH = PROJECT_ROOT / "extractor" / "supervisor" / "10_upload_sealed_segments.py"
 LOADER_PATH = PROJECT_ROOT / "loader" / "run" / "10_load_run_from_s3.py"
@@ -91,9 +96,9 @@ class FakeClickHouseTarget:
         self.staging_events = []
         self.staging_legs = []
 
-    def append_stage_rows(self, event_rows, leg_rows, batch_index: int) -> None:
+    def append_stage_rows(self, event_rows, leg_rows=None, batch_index: int = 0) -> None:
         self.staging_events.extend(event_rows)
-        self.staging_legs.extend(leg_rows)
+        self.staging_legs.extend(leg_rows or [])
 
     def merge_segment(self, run_id: str, segment_id: str) -> dict[str, int]:
         events_inserted = 0
@@ -111,6 +116,18 @@ class FakeClickHouseTarget:
 
     def insert_load_audit(self, rows) -> None:
         self.audit_rows.extend(rows)
+
+    def backfill_legs_for_run(self, run_id: str) -> int:
+        inserted = 0
+        for row in list(self.events.values()):
+            if row["load_run_id"] != run_id:
+                continue
+            for leg in build_legs(row):
+                if leg["leg_id"] in self.legs:
+                    continue
+                self.legs[leg["leg_id"]] = leg
+                inserted += 1
+        return inserted
 
     def count_rows(self, table_name: str, where_clause: str, step: str = "count_rows") -> int:
         run_marker = "load_run_id = '"
@@ -199,7 +216,7 @@ class LoaderE2EDemoTest(unittest.TestCase):
         self.assertEqual(len(load_result["segments"]), 1)
         self.assertEqual(load_result["segments"][0]["status"], "validated")
         self.assertEqual(len(target.events), 3)
-        self.assertEqual(len(target.legs), 6)
+        self.assertEqual(len(target.legs), 0)
         self.assertEqual(len(target.audit_rows), 2)
 
         validation = self.loader.validate_loaded_run(
@@ -211,6 +228,7 @@ class LoaderE2EDemoTest(unittest.TestCase):
         self.assertEqual(validation["status"], "ok")
         self.assertEqual(validation["events"], 3)
         self.assertEqual(validation["legs"], 6)
+        self.assertEqual(validation["legs_backfilled"], 6)
         self.assertEqual(validation["segment_status_counts"]["validated"], 1)
 
         replay_result = self.loader.load_run_from_s3(
@@ -268,7 +286,17 @@ class LoaderE2EDemoTest(unittest.TestCase):
         self.assertEqual(len(load_result["segments"]), 3)
         self.assertEqual(sum(segment["metrics"]["record_count"] for segment in load_result["segments"]), 12)
         self.assertEqual(len(target.events), 12)
-        self.assertEqual(len(target.legs), 24)
+        self.assertEqual(len(target.legs), 0)
+
+        validation = self.loader.validate_loaded_run(
+            run_id=self.run_id,
+            loader_db_path=self.loader_db,
+            loader_schema_path=LOADER_SCHEMA,
+            load_target=target,
+        )
+        self.assertEqual(validation["status"], "ok")
+        self.assertEqual(validation["legs"], 24)
+        self.assertEqual(validation["legs_backfilled"], 24)
 
 
 if __name__ == "__main__":
