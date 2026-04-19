@@ -37,6 +37,14 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def open_sqlite_connection(db_path: Path) -> sqlite3.Connection:
+    connection = sqlite3.connect(db_path, timeout=30.0)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA synchronous=NORMAL")
+    connection.execute("PRAGMA busy_timeout=30000")
+    return connection
+
+
 def normalize_prefix(prefix_root: str) -> str:
     return prefix_root.rstrip("/")
 
@@ -547,7 +555,7 @@ def upload_sealed_segments(
     resolved_end_block: int | None = None,
 ) -> list[dict[str, Any]]:
     client = s3_client or Boto3S3Client(region_name=region)
-    connection = sqlite3.connect(db_path)
+    connection = open_sqlite_connection(db_path)
     try:
         ensure_upload_state_schema(connection, schema_path)
         reconcile_local_manifests(connection, db_path, run_id=run_id)
@@ -664,7 +672,7 @@ def verify_uploaded_segments(
     region: str | None = None,
 ) -> dict[str, Any]:
     client = s3_client or Boto3S3Client(region_name=region)
-    connection = sqlite3.connect(db_path)
+    connection = open_sqlite_connection(db_path)
     try:
         ensure_upload_state_schema(connection, schema_path)
         rows = connection.execute(
@@ -673,12 +681,19 @@ def verify_uploaded_segments(
             FROM segments s
             JOIN segment_upload_state u ON u.segment_id = s.segment_id
             WHERE s.status = 'uploaded'
+              AND (
+                    u.last_verified_at IS NULL
+                    OR u.uploaded_at IS NULL
+                    OR u.last_verified_at < u.uploaded_at
+                  )
             """
             + (" AND s.run_id = ?" if run_id else "")
             + " ORDER BY s.run_id, s.segment_seq",
             ((run_id,) if run_id else ()),
         ).fetchall()
+        connection.commit()
         verified_runs: dict[str, Path] = {}
+        verified_segment_ids: list[str] = []
         for segment_id, current_run_id, file_path, s3_key, manifest_s3_key in rows:
             segment_path = Path(file_path)
             manifest_path = find_manifest_for_segment(segment_path)
@@ -687,7 +702,7 @@ def verify_uploaded_segments(
             if not head_matches_local(client.head_object(bucket, manifest_s3_key), manifest_path.stat().st_size, sha256_file(manifest_path)):
                 raise RuntimeError(f"manifest mismatch for {segment_id}")
             verified_runs[current_run_id] = run_root_for_segment(segment_path)
-            connection.execute("UPDATE segment_upload_state SET last_verified_at = ? WHERE segment_id = ?", (utc_now_iso(), segment_id))
+            verified_segment_ids.append(segment_id)
         for current_run_id, run_root in verified_runs.items():
             first_segment = next(iter(sorted((run_root / "segments").glob("*"))))
             first_manifest = next(iter(sorted((run_root / "manifests").glob("*.manifest.json"))))
@@ -696,6 +711,12 @@ def verify_uploaded_segments(
             client.head_object(bucket, sidecar_keys["runtime_manifest_key"])
             client.head_object(bucket, sidecar_keys["checkpoint_key"])
             client.head_object(bucket, sidecar_keys["checksums_key"])
+        verified_at = utc_now_iso()
+        if verified_segment_ids:
+            connection.executemany(
+                "UPDATE segment_upload_state SET last_verified_at = ? WHERE segment_id = ?",
+                ((verified_at, segment_id) for segment_id in verified_segment_ids),
+            )
         connection.commit()
         return {"uploaded_segments": len(rows), "verified_runs": sorted(verified_runs.keys())}
     finally:

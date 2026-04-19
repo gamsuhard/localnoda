@@ -31,8 +31,10 @@ def load_uploader_module():
 class FakeS3Client:
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], dict[str, object]] = {}
+        self.head_calls: list[tuple[str, str]] = []
 
     def head_object(self, bucket: str, key: str) -> dict[str, object]:
+        self.head_calls.append((bucket, key))
         try:
             return self.objects[(bucket, key)]
         except KeyError as exc:
@@ -272,6 +274,20 @@ class SegmentUploaderTest(unittest.TestCase):
         )
         self.assertEqual(verification["uploaded_segments"], 1)
         self.assertEqual(verification["verified_runs"], [self.run_id])
+        head_calls_after_first_verify = len(self.fake_s3.head_calls)
+
+        verification_again = self.module.verify_uploaded_segments(
+            db_path=self.db_path,
+            schema_path=SQLITE_SCHEMA_002,
+            bucket=self.bucket,
+            prefix_root=self.prefix_root,
+            run_id=self.run_id,
+            s3_client=self.fake_s3,
+            region="eu-central-1",
+        )
+        self.assertEqual(verification_again["uploaded_segments"], 0)
+        self.assertEqual(verification_again["verified_runs"], [])
+        self.assertEqual(len(self.fake_s3.head_calls), head_calls_after_first_verify)
 
 
 if __name__ == "__main__":
