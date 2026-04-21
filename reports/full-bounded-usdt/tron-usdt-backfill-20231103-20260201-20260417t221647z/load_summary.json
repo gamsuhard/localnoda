@@ -77,10 +77,13 @@
   },
   "canonical_counts": {
     "event_rows": 1755555770,
-    "leg_rows": 3511111540,
-    "legs_equals_two_times_events": true,
+    "leg_rows": 283854684,
+    "expected_leg_rows_if_complete": 3511111540,
+    "missing_leg_rows": 3227256856,
+    "legs_equals_two_times_events": false,
     "source_rows_minus_canonical_events": 217366879,
-    "source_to_canonical_note": "The source-to-canonical row delta is operationally explained by the 487 loader-skipped segments seen in the final ledger, but the exact skipped-row sum was not re-aggregated after the Frankfurt host was shut down."
+    "source_to_canonical_note": "The source-to-canonical row delta is operationally explained by the 487 loader-skipped segments seen in the final ledger, but the exact skipped-row sum was not re-aggregated after the Frankfurt host was shut down.",
+    "posthoc_leg_verification_note": "Manual ClickHouse console verification on 2026-04-21 showed address_transfer_legs contains 283854684 rows. The earlier closure bundle had incorrectly reused the watcher-derived synthetic field clickhouse_legs = count(events) * 2 from scripts/ops/22_watch_pipeline_eta.py."
   },
   "evidence_sources": [
     "s3://goldusdt-v2-stage-913378704801-raw/providers/tron-usdt-backfill/usdt-transfer-oneoff/runs/tron-usdt-backfill-20231103-20260201-20260417t221647z/manifests/run.json",
@@ -88,7 +91,8 @@
     "s3://goldusdt-v2-stage-913378704801-raw/providers/tron-usdt-backfill/usdt-transfer-oneoff/runs/tron-usdt-backfill-20231103-20260201-20260417t221647z/checkpoints/extraction.json",
     "/srv/local-tron-usdt-backfill/runtime/run_state.sqlite on i-0b9c2749efd34e796",
     "G:/CODEX/LOCALNODA/local-tron-usdt-backfill/logs/pipeline-watch.utf8.log line 840",
-    "Direct Frankfurt loader ledger probe before the user-initiated shutdown"
+    "Direct Frankfurt loader ledger probe before the user-initiated shutdown",
+    "Manual ClickHouse console verification on 2026-04-21 against tron_usdt_reprmonth_20231103_20231203_20260417t221647z"
   ],
   "verdict": "USDT_SOURCE_AND_SEGMENT_RECONCILIATION_COMPLETE"
 }

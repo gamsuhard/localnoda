@@ -1,7 +1,7 @@
 # Block 10 Approval Bundle
 
 Date: 2026-04-21
-Status: historical approval and execution record
+Status: historical approval and execution record corrected after post-hoc validation
 
 ## Goal
 
@@ -10,6 +10,10 @@ bulk USDT run.
 
 This file is no longer a pre-start placeholder. It now documents the actual
 execution outcome.
+
+Corrective addendum:
+
+- [posthoc_legs_validation_addendum.md](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/posthoc_legs_validation_addendum.md)
 
 ## Approval verdict state
 
@@ -36,10 +40,19 @@ Historical note:
   - `validated = 3681`
   - `skipped = 487`
   - `processed total = 4168`
-- Canonical counts observed before shutdown:
+- Canonical counts after post-hoc manual ClickHouse verification on `2026-04-21`:
   - events: `1755555770`
-  - legs: `3511111540`
-  - `legs == 2 * events`
+  - actual legs: `283854684`
+  - expected legs if complete: `3511111540`
+  - `legs != 2 * events`
+
+This means:
+
+- `trc20_transfer_events` materialization completed materially successfully
+- `address_transfer_legs` did **not** complete
+- the earlier `legs == 2 * events` claim in the initial closure bundle was
+  incorrect because it reused a watcher-derived synthetic field instead of a
+  real `address_transfer_legs` query
 
 ## Bundle contents for the executed run
 
@@ -64,6 +77,7 @@ Historical note:
 - [replay.json](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/replay.json)
 - [storage_measurement.json](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/storage_measurement.json)
 - [operator_summary.md](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/operator_summary.md)
+- [posthoc_legs_validation_addendum.md](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/posthoc_legs_validation_addendum.md)
 
 ## Remaining limitations
 
@@ -72,6 +86,8 @@ Historical note:
   `StartInstances` returned AWS account status `Blocked`.
 - The executed-run bundle therefore uses the final live loader/canonical probes
   captured before shutdown, plus durable S3 and Singapore SQLite evidence.
+- S3 raw payload has since been deleted, so any legs recovery now depends on
+  the preserved local raw archive on Singapore plus the retained S3 metadata.
 
 ## Current truthful state
 
@@ -83,5 +99,9 @@ with the following historical interpretation:
 
 - the first bounded bulk was approved
 - the first bounded bulk was executed
-- the USDT bounded run completed materially successfully
-- post-run work now belongs to validation / audit / handoff, not to approval
+- source upload completed
+- `trc20_transfer_events` completed materially successfully
+- `address_transfer_legs` remains incomplete and still requires rebuild or
+  explicit waiver
+- post-run work therefore still includes validation/remediation, not only
+  audit/handoff

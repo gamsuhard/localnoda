@@ -3,7 +3,11 @@
 - Run ID: `tron-usdt-backfill-20231103-20260201-20260417t221647z`
 - Git commit in current workspace: `7c71c83cce60c8555321e4265330438eceb85050`
 - ClickHouse database: `tron_usdt_reprmonth_20231103_20231203_20260417t221647z`
-- Verdict: `BLOCK_09_FORMALLY_CLOSED` and `BLOCK_10_EXECUTED_FOR_USDT`
+- Verdict: `source upload complete; trc20_transfer_events validated; address_transfer_legs incomplete`
+
+Corrective addendum:
+
+- [posthoc_legs_validation_addendum.md](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/posthoc_legs_validation_addendum.md)
 
 ## Bounded run result
 
@@ -22,8 +26,10 @@
   - `skipped = 487`
   - `processed total = 4168`
 - Canonical event rows observed: `1755555770`
-- Canonical leg rows observed: `3511111540`
-- `legs == 2 * events`: `true`
+- Canonical leg rows observed after post-hoc manual verification: `283854684`
+- Expected leg rows if complete: `3511111540`
+- Missing leg rows: `3227256856`
+- `legs == 2 * events`: `false`
 
 ## Operational notes
 
@@ -35,12 +41,10 @@
 
 ## Storage conclusion
 
-- Exact event-table `bytes_on_disk` observed before shutdown: `249776555862` bytes (`232.62 GiB`)
-- Estimated final leg-table `bytes_on_disk`: `37224302272` bytes (`34.67 GiB`)
-- Estimated total canonical on-disk footprint: `287000858134` bytes (`267.29 GiB`)
-- Recommended disk budget:
-  - minimum `350 GiB` per replica
-  - comfortable `500 GiB` per replica
+- Exact event-table footprint from post-hoc table metadata: `249776592038` bytes (`232.62 GiB`)
+- Current observed partial leg-table footprint: `36581490855` bytes (`34.07 GiB`)
+- Current observed total footprint of the two tables as they exist now: `286358082893` bytes (`266.69 GiB`)
+- No corrected final full `events + legs` disk budget is asserted here because `address_transfer_legs` is incomplete.
 
 ## Limits that remain documented but non-blocking
 
@@ -51,7 +55,15 @@
   - real two-segment canary replay
   - loader stress restart/replay drills
 
+## Recovery viability for legs
+
+- Local raw still exists on Singapore:
+  - `/srv/local-tron-usdt-backfill/raw -> /mnt/raw-ebs/raw`
+- The raw volume still contains this run locally.
+- Local `segments/*.ndjson.gz` count for this run is `4169`, while the authoritative uploaded run count is `4168`.
+- This means a legs rebuild is still possible, but it must be scoped by the authoritative run manifest/checkpoint and not by local raw file count alone.
+
 ## Closure decision
 
-- Block 09 is formally closed because the actual full bounded run is stronger evidence than the previously planned representative-month surrogate.
-- Block 10 is closed for the USDT bounded run because source upload completed and loader reconciliation reached `4168 / 4168` processed segments before shutdown.
+- Block 09 remains usable only for source raw and event-table storage evidence.
+- Block 10 is not fully closed because `address_transfer_legs` remains incomplete.

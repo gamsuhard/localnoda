@@ -1,29 +1,42 @@
 # Block 09 Closure Decision
 
 Date: 2026-04-21
-Status: final post-Block10 closure decision
+Status: corrected after post-hoc ClickHouse verification
 Decision path: `A1`
 
 ## Verdict
 
-`BLOCK_09_FORMALLY_CLOSED`
+`BLOCK_09_SOURCE_RAW_AND_EVENT_TABLE_STORAGE_EVIDENCE_CLOSED`
+
+Corrective addendum:
+
+- [posthoc_legs_validation_addendum.md](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/posthoc_legs_validation_addendum.md)
 
 ## Why Block 09 is now closed
 
 The original Block 09 gate existed to avoid blind sizing guesses by forcing one
 representative bounded run before the first bulk execution.
 
-That surrogate is no longer needed because the project now has **stronger**
-evidence:
+That surrogate is no longer needed for **source raw sizing** and the
+`trc20_transfer_events` table because the project now has stronger evidence:
 
 - the actual full bounded USDT run completed source upload
 - the full bounded run produced exact source-side row and byte totals
 - the loader reconciled all `4168` uploaded segments before shutdown
-- canonical counts were observed on the production target schema before shutdown
+- canonical event rows were observed on the production target schema before shutdown
 - replay-safe semantics were already accepted on the same loader path through:
   - the controlled real slice
   - the real two-segment canary
   - the loader restart/replay stress drills
+
+What changed after the initial closure:
+
+- post-hoc manual ClickHouse verification on `2026-04-21` showed that
+  `address_transfer_legs` was only partially materialized
+- the prior `legs == 2 * events` claim came from a synthetic watcher field that
+  computed `count(events) * 2`, not from a real query against
+  `address_transfer_legs`
+- therefore the earlier full-canonical-pair storage claim is withdrawn
 
 ## Final bounded-run facts used for closure
 
@@ -39,29 +52,37 @@ evidence:
   - `validated = 3681`
   - `skipped = 487`
   - `processed total = 4168`
-- Canonical counts observed before the Frankfurt shutdown:
+- Post-hoc ClickHouse facts from manual console verification on `2026-04-21`:
   - events: `1755555770`
-  - legs: `3511111540`
-  - `legs == 2 * events`
+  - actual legs: `283854684`
+  - expected legs if complete: `3511111540`
+  - missing legs: `3227256856`
+  - `legs != 2 * events`
 
 ## Storage conclusion
 
-Block 09 required real storage evidence. The full bounded run now provides that:
+Block 09 required real storage evidence. The full bounded run now provides that
+for source raw and the event table:
 
 - exact source compressed raw size: `272.57 GiB`
-- exact canonical event-table `bytes_on_disk` observed before shutdown:
-  - `249776555862` bytes
+- exact canonical event-table footprint from post-hoc table metadata:
+  - `249776592038` bytes
   - `232.62 GiB`
-- estimated final total canonical footprint:
-  - `287000858134` bytes
-  - `267.29 GiB`
+- current observed partial leg-table footprint:
+  - `36581490855` bytes
+  - `34.07 GiB`
+- current observed total footprint of the two tables as they exist now:
+  - `286358082893` bytes
+  - `266.69 GiB`
 
-Recommended disk budget going forward:
+Important correction:
 
-- minimum `350 GiB` per replica
-- comfortable `500 GiB` per replica
+- the current `266.69 GiB` total is **not** a valid final full-canonical budget
+  because `address_transfer_legs` is incomplete
+- no corrected full `events + legs` per-replica storage recommendation is
+  asserted here until legs are rebuilt or explicitly waived
 
-## Documented limitations that do not keep Block 09 open
+## Documented limitations that do not keep this corrected Block 09 claim open
 
 - The Frankfurt loader-host was intentionally shut down after completion.
 - On `2026-04-21`, a fresh re-probe was blocked because `StartInstances`
@@ -70,10 +91,12 @@ Recommended disk budget going forward:
   - durable S3 run artifacts
   - durable extractor SQLite state on Singapore
   - the final live loader/canonical probes captured before shutdown
+  - the post-hoc manual ClickHouse verification performed on `2026-04-21`
 
 These limitations do **not** outweigh the fact that an actual full bounded run
-was executed and reconciled. That is materially stronger evidence than the
-original representative-month surrogate.
+was executed and reconciled for source upload and canonical events. That is
+materially stronger evidence than the original representative-month surrogate
+for the parts of Block 09 that are still being claimed here.
 
 ## Closure artifacts
 
@@ -84,10 +107,14 @@ The final bounded-run closure bundle lives at:
 - [replay.json](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/replay.json)
 - [storage_measurement.json](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/storage_measurement.json)
 - [operator_summary.md](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/operator_summary.md)
+- [posthoc_legs_validation_addendum.md](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/posthoc_legs_validation_addendum.md)
 
 ## What this means
 
-- Block 09 is formally closed.
-- Block 10 no longer depends on a representative-month waiver.
-- Further work moves to post-load validation / audit / handoff, not to storage
-  uncertainty.
+- Block 09 is closed only for:
+  - exact source raw sizing
+  - exact `trc20_transfer_events` sizing
+- the prior full `events + legs` storage claim is superseded by the corrective
+  addendum
+- Block 10 does not depend on a representative-month waiver, but full
+  validation still depends on resolving or waiving the incomplete legs table
