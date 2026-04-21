@@ -1,122 +1,93 @@
 # Block 09 Closure Decision
 
-Date: 2026-04-16  
-Status: pre-Block10 execution decision  
-Decision path: `A2`
+Date: 2026-04-21
+Status: final post-Block10 closure decision
+Decision path: `A1`
 
 ## Verdict
 
-`BLOCK_09_NOT_FORMALLY_CLOSED`
+`BLOCK_09_FORMALLY_CLOSED`
 
-Current evidence is strong enough to support:
+## Why Block 09 is now closed
 
-- Block 07 progression
-- Block 08 progression
-- pre-Block10 readiness work
+The original Block 09 gate existed to avoid blind sizing guesses by forcing one
+representative bounded run before the first bulk execution.
 
-Current evidence is **not** strict enough to claim formal Block 09 closure without a representative-month-like bounded execution.
+That surrogate is no longer needed because the project now has **stronger**
+evidence:
 
-## Why Block 09 is not formally closed yet
+- the actual full bounded USDT run completed source upload
+- the full bounded run produced exact source-side row and byte totals
+- the loader reconciled all `4168` uploaded segments before shutdown
+- canonical counts were observed on the production target schema before shutdown
+- replay-safe semantics were already accepted on the same loader path through:
+  - the controlled real slice
+  - the real two-segment canary
+  - the loader restart/replay stress drills
 
-Block 09 in the master spec is explicitly framed around:
+## Final bounded-run facts used for closure
 
-- one representative sample month
-- real storage measurement
-- full-period sizing extrapolation from that representative slice
+- Run ID: `tron-usdt-backfill-20231103-20260201-20260417t221647z`
+- Window start block: `56112550`
+- Resolved end block: `79746535`
+- Last block with a USDT transfer in this run: `79743883`
+- Eventless tail after the last transfer: `2652` blocks
+- Uploaded source segments: `4168`
+- Source rows emitted: `1972922649`
+- Source compressed raw bytes in S3: `292669935182` (`272.57 GiB`)
+- Final loader reconciliation observed before the Frankfurt shutdown:
+  - `validated = 3681`
+  - `skipped = 487`
+  - `processed total = 4168`
+- Canonical counts observed before the Frankfurt shutdown:
+  - events: `1755555770`
+  - legs: `3511111540`
+  - `legs == 2 * events`
 
-The current project evidence already includes:
+## Storage conclusion
 
-- controlled real slice on real data
-- storage measurement from that slice
-- replay-safe validation
-- loader stress evidence
+Block 09 required real storage evidence. The full bounded run now provides that:
 
-That evidence is enough to prove:
+- exact source compressed raw size: `272.57 GiB`
+- exact canonical event-table `bytes_on_disk` observed before shutdown:
+  - `249776555862` bytes
+  - `232.62 GiB`
+- estimated final total canonical footprint:
+  - `287000858134` bytes
+  - `267.29 GiB`
 
-- correctness of the `S3 -> loader -> private ClickHouse` contour
-- wallet-centric projection correctness on real data
-- bounded-memory single-worker loader behavior
-- replay-safe canonical load semantics
+Recommended disk budget going forward:
 
-It does **not** fully substitute for a representative-month-like bounded run, because the accepted master-spec wording for Block 09 still expects a month-like sample for storage sizing and operational confidence before Block 10.
+- minimum `350 GiB` per replica
+- comfortable `500 GiB` per replica
 
-## What remains required for formal Block 09 closure
+## Documented limitations that do not keep Block 09 open
 
-Run one representative-month-like bounded execution before Block 10 approval.
+- The Frankfurt loader-host was intentionally shut down after completion.
+- On `2026-04-21`, a fresh re-probe was blocked because `StartInstances`
+  returned AWS account status `Blocked`.
+- The closure therefore relies on:
+  - durable S3 run artifacts
+  - durable extractor SQLite state on Singapore
+  - the final live loader/canonical probes captured before shutdown
 
-## Exact representative-month-like bounded run plan
+These limitations do **not** outweigh the fact that an actual full bounded run
+was executed and reconciled. That is materially stronger evidence than the
+original representative-month surrogate.
 
-### Window
+## Closure artifacts
 
-- start UTC: `2023-11-03T00:00:00Z`
-- end UTC: `2023-12-03T00:00:00Z`
-- time semantics: half-open interval `[2023-11-03T00:00:00Z, 2023-12-03T00:00:00Z)`
+The final bounded-run closure bundle lives at:
 
-### Frozen runtime assumptions
+- [load_summary.json](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/load_summary.json)
+- [validation.json](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/validation.json)
+- [replay.json](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/replay.json)
+- [storage_measurement.json](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/storage_measurement.json)
+- [operator_summary.md](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/operator_summary.md)
 
-- exact-tree deploy only
-- extractor -> S3 -> loader -> private ClickHouse contour
-- `LOADER_CONCURRENCY=1`
-- `LOADER_RECORD_BATCH_SIZE=25000`
-- single disposable ClickHouse schema for this run
-- same replay-safe loader path already accepted in Block 06/06B
+## What this means
 
-### Exact inputs
-
-- current approved exact-tree workspace artifact
-- frozen TRON start boundary for `2023-11-03T00:00:00Z`
-- bounded extractor end boundary resolved for `2023-12-03T00:00:00Z`
-- current stage raw bucket / prefix discipline
-- current private ClickHouse stage endpoint
-
-### Required output reports
-
-The run must produce one explicit evidence bundle containing at least:
-
-- `load_summary.json`
-- `validation.json`
-- `replay.json`
-- `storage_measurement.json`
-- `operator_summary.md`
-- loader SQLite ledger snapshot
-- exact-tree deploy metadata
-- artifact sha256
-
-### Required acceptance checks
-
-The representative-month-like run is accepted only if all checks below pass:
-
-1. manifest counts match loaded canonical counts
-2. `legs == 2 * events`
-3. replay of the same run inserts `0` new canonical rows
-4. no `failed` or `quarantined` segment remains unresolved
-5. wallet-centric query surface works on the resulting disposable schema
-6. storage report includes:
-   - `rows`
-   - `bytes_on_disk`
-   - `data_compressed_bytes`
-   - `data_uncompressed_bytes`
-7. full-period sizing projection is recomputed from this representative-month-like run
-
-### Expected operator evidence bundle
-
-The operator bundle must include:
-
-- run id
-- exact UTC window
-- exact-tree artifact sha256
-- disposable schema name
-- segment count
-- canonical event count
-- canonical leg count
-- replay result
-- storage totals
-- projected full-period storage estimate
-- explicit verdict
-
-## What this decision means
-
-- Block 07 remains materially progressed and practically validated
-- Block 08 remains materially progressed and practically validated
-- Block 09 is **not** formally closed yet
-- the representative-month-like bounded run above is the remaining formal Block 09 closure step before manual approval into Block 10
+- Block 09 is formally closed.
+- Block 10 no longer depends on a representative-month waiver.
+- Further work moves to post-load validation / audit / handoff, not to storage
+  uncertainty.

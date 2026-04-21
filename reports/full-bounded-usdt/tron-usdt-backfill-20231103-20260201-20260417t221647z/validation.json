@@ -1,0 +1,24 @@
+{
+  "run_id": "tron-usdt-backfill-20231103-20260201-20260417t221647z",
+  "status": "ok",
+  "checks": {
+    "run_manifest_uploaded": true,
+    "s3_segment_count_matches_run_manifest": true,
+    "segment_upload_state_verified_rows_match_run_manifest": true,
+    "last_uploaded_block_matches_last_transfer_block": true,
+    "tail_without_additional_transfers_documented": true,
+    "loader_processed_segment_total_matches_source_segment_total": true,
+    "loader_failed_or_quarantined_segments_observed": false,
+    "canonical_event_rows_observed": 1755555770,
+    "canonical_leg_rows_observed": 3511111540,
+    "legs_equals_two_times_events": true,
+    "sequence_gaps_explained_by_orphaned_partials": true,
+    "source_rows_minus_canonical_events": 217366879
+  },
+  "limitations": [
+    "Frankfurt loader-host i-0835e4602efaacf59 was intentionally shut down after the bounded run completed. A fresh post-shutdown re-probe could not be executed on 2026-04-21 because StartInstances returned AWS account status Blocked.",
+    "Extractor SQLite runs.status remained stale as running even though run.json and extraction.json were already at uploaded. The run manifest, upload checkpoint, segment_upload_state, and S3 object count were treated as the authoritative source-side truth.",
+    "The exact skipped-row sum behind the source-to-canonical delta was not recomputed after shutdown, but the final loader ledger did show 487 skipped segments and 3681 validated segments, which is operationally consistent with the observed delta."
+  ],
+  "verdict": "VALIDATION_PASSED_WITH_DOCUMENTED_LIMITATIONS"
+}

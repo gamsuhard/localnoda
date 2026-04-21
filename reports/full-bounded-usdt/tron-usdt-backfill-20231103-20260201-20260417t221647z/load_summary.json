@@ -1,0 +1,94 @@
+{
+  "run_id": "tron-usdt-backfill-20231103-20260201-20260417t221647z",
+  "clickhouse_database": "tron_usdt_reprmonth_20231103_20231203_20260417t221647z",
+  "window": {
+    "start_block": 56112550,
+    "resolved_end_block": 79746535,
+    "last_transfer_block": 79743883,
+    "tail_eventless_blocks": 2652
+  },
+  "runtime_manifest": {
+    "java_tron_version": "GreatVoyage-v4.8.1",
+    "config_sha256": "08c6c6f13df48b76259fa76bfb80fbee8697eae77ae313c7da0c766bf8b06f76",
+    "plugin_build_id": "bc44902d2e5b5d8c19fc0ded118fb507fc1b70991b7561f6e1115b279ecf4973",
+    "segment_target_bytes": 805306368,
+    "segment_target_records": 750000,
+    "flush_every_records": 5000,
+    "compression": "gzip",
+    "gzip_level": 1,
+    "gzip_buffer_bytes": 65536
+  },
+  "source_segments": {
+    "segment_count": 4168,
+    "latest_segment_seq": 4179,
+    "sequence_gap_count": 11,
+    "segment_status_counts": {
+      "uploaded": 4168
+    },
+    "total_rows": 1972922649,
+    "total_bytes": 292669935182,
+    "total_bytes_gib": 272.57,
+    "partial_count": 1,
+    "orphaned_partial_count": 10
+  },
+  "source_segment_examples": {
+    "first_segment": {
+      "segment_id": "tron-usdt-backfill-20231103-20260201-20260417t221647z-seg-000001",
+      "segment_seq": 1,
+      "first_block": 56112550,
+      "last_block": 56116819,
+      "row_count": 218239,
+      "byte_count": 29471064,
+      "sha256": "f85bf7082ff51f86d823b860b0c0b3c9523ec32e17b77992ba8a4b0a2de7ae0b",
+      "closed_at": "2026-04-17T22:37:25.528Z"
+    },
+    "latest_segment": {
+      "segment_id": "tron-usdt-backfill-20231103-20260201-20260417t221647z-seg-004179",
+      "segment_seq": 4179,
+      "first_block": 79736091,
+      "last_block": 79743883,
+      "row_count": 654720,
+      "byte_count": 100668234,
+      "sha256": "c8da945296b8ab40efeaa7906cedce31e081fec235e18a3febfd5508c622dc01",
+      "closed_at": "2026-04-20T14:46:44.156Z"
+    }
+  },
+  "s3_upload_reconciliation": {
+    "run_manifest_status": "uploaded",
+    "run_manifest_segment_count": 4168,
+    "uploaded_segment_objects": 4168,
+    "segment_upload_state_rows": 4168,
+    "segment_upload_state_uploaded_rows": 4167,
+    "segment_upload_state_verified_rows": 4168,
+    "segment_upload_state_uploaded_at_gap_segment_id": "tron-usdt-backfill-20231103-20260201-20260417t221647z-seg-002366",
+    "segment_upload_state_uploaded_at_gap_note": "Segment 2366 has verified S3 metadata and an S3 key, but uploaded_at is null in extractor SQLite. This was treated as extractor-side bookkeeping drift, not missing data.",
+    "last_uploaded_segment_id": "tron-usdt-backfill-20231103-20260201-20260417t221647z-seg-004179",
+    "last_uploaded_block_number": 79743883,
+    "checkpoint_updated_at": "2026-04-20T15:01:39Z"
+  },
+  "loader_reconciliation": {
+    "final_observed_at_utc": "2026-04-20T15:49:29Z",
+    "status_counts": {
+      "validated": 3681,
+      "skipped": 487
+    },
+    "processed_segments": 4168,
+    "note": "Final loader reconciliation comes from the last direct Frankfurt ledger probe before the host was intentionally shut down."
+  },
+  "canonical_counts": {
+    "event_rows": 1755555770,
+    "leg_rows": 3511111540,
+    "legs_equals_two_times_events": true,
+    "source_rows_minus_canonical_events": 217366879,
+    "source_to_canonical_note": "The source-to-canonical row delta is operationally explained by the 487 loader-skipped segments seen in the final ledger, but the exact skipped-row sum was not re-aggregated after the Frankfurt host was shut down."
+  },
+  "evidence_sources": [
+    "s3://goldusdt-v2-stage-913378704801-raw/providers/tron-usdt-backfill/usdt-transfer-oneoff/runs/tron-usdt-backfill-20231103-20260201-20260417t221647z/manifests/run.json",
+    "s3://goldusdt-v2-stage-913378704801-raw/providers/tron-usdt-backfill/usdt-transfer-oneoff/runs/tron-usdt-backfill-20231103-20260201-20260417t221647z/manifests/runtime.json",
+    "s3://goldusdt-v2-stage-913378704801-raw/providers/tron-usdt-backfill/usdt-transfer-oneoff/runs/tron-usdt-backfill-20231103-20260201-20260417t221647z/checkpoints/extraction.json",
+    "/srv/local-tron-usdt-backfill/runtime/run_state.sqlite on i-0b9c2749efd34e796",
+    "G:/CODEX/LOCALNODA/local-tron-usdt-backfill/logs/pipeline-watch.utf8.log line 840",
+    "Direct Frankfurt loader ledger probe before the user-initiated shutdown"
+  ],
+  "verdict": "USDT_SOURCE_AND_SEGMENT_RECONCILIATION_COMPLETE"
+}

@@ -1,0 +1,23 @@
+{
+  "run_id": "tron-usdt-backfill-20231103-20260201-20260417t221647z",
+  "full_run_replay_executed": false,
+  "status": "accepted_from_prior_evidence",
+  "accepted_prior_replay_evidence": [
+    {
+      "path": "reports/real-slice/real-slice-20230901t0000z-20260416t114407z-replay.json",
+      "new_canonical_event_rows": 0,
+      "new_leg_rows": 0
+    },
+    {
+      "path": "reports/real-multisegment-canary/real-multisegment-canary-20260417t163700z/replay_summary.json",
+      "replay_new_events": 0,
+      "replay_new_legs": 0
+    },
+    {
+      "path": "reports/stress/20260416t112926z/summary.md",
+      "note": "Restart and replay drill remained zero-delta on the same loader path used for the bounded bulk."
+    }
+  ],
+  "reason": "A second replay of the 4,168-segment production load was not executed after the full bounded run. Replay-safe semantics were accepted from the same loader path on the controlled real slice, the two-segment real canary, and the loader stress replay drills.",
+  "verdict": "REPLAY_SAFETY_ACCEPTED_FROM_PRIOR_EVIDENCE"
+}

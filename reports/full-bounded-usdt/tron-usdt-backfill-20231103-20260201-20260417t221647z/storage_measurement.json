@@ -1,0 +1,22 @@
+{
+  "run_id": "tron-usdt-backfill-20231103-20260201-20260417t221647z",
+  "measurement_scope": "mixed_exact_and_estimated",
+  "source_raw_compressed_bytes_exact": 292669935182,
+  "source_raw_compressed_gib_exact": 272.57,
+  "source_rows_exact": 1972922649,
+  "canonical_event_rows_observed": 1755555770,
+  "canonical_leg_rows_observed": 3511111540,
+  "canonical_event_bytes_on_disk_exact": 249776555862,
+  "canonical_event_bytes_on_disk_gib_exact": 232.62,
+  "canonical_leg_bytes_on_disk_estimated": 37224302272,
+  "canonical_leg_bytes_on_disk_gib_estimated": 34.67,
+  "canonical_total_bytes_on_disk_estimated": 287000858134,
+  "canonical_total_bytes_on_disk_gib_estimated": 267.29,
+  "replication_factor_runtime": 2,
+  "storage_recommendation": {
+    "minimum_per_replica_gib": 350,
+    "comfortable_per_replica_gib": 500,
+    "note": "Event table bytes_on_disk were captured exactly before the Frankfurt host shutdown. Final leg-table bytes could not be re-polled on 2026-04-21 because the AWS account blocked StartInstances, so the leg footprint here is estimated from the previously observed event-to-leg storage ratio."
+  },
+  "verdict": "FULL_BOUNDED_STORAGE_SIZING_AVAILABLE"
+}

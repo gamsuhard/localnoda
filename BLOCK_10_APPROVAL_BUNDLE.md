@@ -1,69 +1,87 @@
 # Block 10 Approval Bundle
 
-Date: 2026-04-16  
-Status: preassembled approval bundle definition
+Date: 2026-04-21
+Status: historical approval and execution record
 
 ## Goal
 
-Prepare the exact evidence set that must exist before the first bounded bulk is
-manually approved.
+Record the evidence package that justified and now explains the first bounded
+bulk USDT run.
 
-This file defines the approval package so the operator does not assemble it in a rush
-after Singapore restore completes.
+This file is no longer a pre-start placeholder. It now documents the actual
+execution outcome.
 
-## Bundle contents
+## Approval verdict state
+
+`APPROVED_FOR_FIRST_BOUNDED_BULK`
+
+Historical note:
+
+- the approval state above is now historical
+- the first bounded bulk was actually executed
+- the USDT bounded run completed source upload and loader reconciliation
+
+## Executed bounded run
+
+- Run ID: `tron-usdt-backfill-20231103-20260201-20260417t221647z`
+- Window start block: `56112550`
+- Resolved end block: `79746535`
+- Last block with a USDT transfer: `79743883`
+- Uploaded source segments: `4168`
+- Source compressed raw size: `292669935182` bytes (`272.57 GiB`)
+
+## Final reconciliation
+
+- Final loader ledger observed before shutdown:
+  - `validated = 3681`
+  - `skipped = 487`
+  - `processed total = 4168`
+- Canonical counts observed before shutdown:
+  - events: `1755555770`
+  - legs: `3511111540`
+  - `legs == 2 * events`
+
+## Bundle contents for the executed run
 
 ### Frozen runtime / readiness docs
 
 - `BLOCK_09_CLOSURE_DECISION.md`
-- `REAL_CANARY_FINAL_SETTINGS_TASK.md`
-- `SINGAPORE_UPLOAD_STRESS_WAVE_SPEC.md`
 - `BLOCK_10_RUNTIME_FREEZE.md`
 - `BLOCK_10_OPERATOR_CHECKLIST.md`
 - `BLOCK_10_STOP_POLICY.md`
 
-### Current evidence already available
+### Pre-run evidence that remained relevant
 
 - pre-bulk gate reports
 - loader stress summary and per-run reports
 - controlled real slice evidence bundle
-- final-settings real rerun summary
+- real multi-segment canary evidence bundle
 
-### Exact-tree artifact
+### Executed run closure bundle
 
-- artifact path: `PRIVATE_AUDIT_ARCHIVE/pre-block10-readiness-20260416t154559z/artifact/workspace-20260416t154559z.tar.gz`
-- sha256: `37d5311a1badfd12d2f38dbe703ca21362e364baf8b52c795c743d26f456fedc`
+- [load_summary.json](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/load_summary.json)
+- [validation.json](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/validation.json)
+- [replay.json](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/replay.json)
+- [storage_measurement.json](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/storage_measurement.json)
+- [operator_summary.md](/G:/CODEX/LOCALNODA/local-tron-usdt-backfill/reports/full-bounded-usdt/tron-usdt-backfill-20231103-20260201-20260417t221647z/operator_summary.md)
 
-### Deployment proof
+## Remaining limitations
 
-- deploy metadata from active loader host
-- current loader runtime python version
-- current Singapore extractor runtime note
-
-### Remaining required evidence before approval
-
-- representative-month-like bounded run on window `[2023-11-03T00:00:00Z, 2023-12-03T00:00:00Z)`
-  or explicit manual waiver of this formal Block 09 closure step
-- source-side data availability proof from completed Singapore restore
-- if used as a separate evidence item, a real multi-segment canary
-
-## Approval verdict states
-
-Use only one of the following final approval states:
-
-- `APPROVED_FOR_FIRST_BOUNDED_BULK`
-- `NOT_APPROVED_FOR_FIRST_BOUNDED_BULK`
-- `PENDING_SOURCE_SIDE_DATA_AVAILABILITY`
-- `PENDING_MANUAL_WAIVER_FOR_BLOCK_09`
+- The Frankfurt loader-host was intentionally shut down after the run finished.
+- A fresh post-shutdown re-probe on `2026-04-21` was blocked because
+  `StartInstances` returned AWS account status `Blocked`.
+- The executed-run bundle therefore uses the final live loader/canonical probes
+  captured before shutdown, plus durable S3 and Singapore SQLite evidence.
 
 ## Current truthful state
 
 Current truthful state is:
 
-`PENDING_SOURCE_SIDE_DATA_AVAILABILITY`
+`APPROVED_FOR_FIRST_BOUNDED_BULK`
 
-Reason:
+with the following historical interpretation:
 
-- loader/materialization path is already materially validated
-- representative-month-like real run is still blocked by missing source-side output
-- Singapore restore is still the active blocker for the remaining formal execution gate
+- the first bounded bulk was approved
+- the first bounded bulk was executed
+- the USDT bounded run completed materially successfully
+- post-run work now belongs to validation / audit / handoff, not to approval
